@@ -1,0 +1,822 @@
+# Google AI Studio — Complete Prompt
+# Multi-Institute Admission & Fees Management Portal
+
+---
+
+## PROMPT START (Copy everything below this line)
+
+---
+
+You are an expert full-stack developer. Build a complete **Multi-Institute Admission & Fees Management Portal** using React + TypeScript + Vite + Firebase (Firestore + Firebase Auth). The app must run entirely in the browser with no backend server. Use Tailwind CSS for styling with a dark theme (slate-950 background, teal accents). Use lucide-react for icons.
+
+---
+
+## SYSTEM OVERVIEW
+
+This is a **multi-tenant** portal where:
+- **One Super Admin** (me) manages all institutes from a master panel
+- **Each institute** gets their own login credentials and sees ONLY their own data
+- No institute can see another institute's data — complete isolation via Firestore subcollections
+- Super Admin can add, suspend, activate institutes and change their settings
+
+There are **TWO login types**:
+1. **Super Admin Login** — email: defined in env, special role
+2. **Institute Admin Login** — email/password, sees only their institute's data
+
+---
+
+## FIREBASE ARCHITECTURE
+
+### Single Firebase Project — Subcollection-based Isolation
+
+```
+Firestore Structure:
+
+institutes/                              ← top-level collection
+  {instituteId}/                         ← one doc per institute
+    config (document):
+      institute_id: string
+      name: string                       ← "MAAC Raipur"
+      reg_prefix: string                 ← "MAAC" → generates MAAC-2026-27-0001
+      email: string
+      phone: string
+      city: string
+      address: string
+      logo_url: string (optional)
+      admin_email: string                ← linked Firebase Auth user
+      status: "active" | "suspended" | "trial"
+      plan: "basic" | "standard" | "pro"
+      created_date: string
+      emailjs_service_id: string         ← per-institute EmailJS config
+      emailjs_template_admission: string
+      emailjs_template_payment: string
+      emailjs_public_key: string
+      whatsapp_number: string (optional)
+      features: {
+        finance_module: boolean
+        fee_reminders: boolean
+        birthday_greetings: boolean
+        certificate_verify: boolean
+        import_leads: boolean
+        backup_restore: boolean
+      }
+
+    students/                            ← subcollection
+      {studentId}: Student document
+
+    payments/                            ← subcollection
+      {paymentId}: Payment document
+
+    expenses/                            ← subcollection
+      {expenseId}: Expense document
+
+    courses/                             ← subcollection
+      {courseId}: CourseOption document
+
+    batches/                             ← subcollection
+      {batchId}: BatchOption document
+
+    counters/                            ← subcollection
+      {fyKey}: { seq: number }           ← for serial reg number generation
+```
+
+### Firebase Auth
+- Each institute admin is a Firebase Auth user
+- On login, app reads `institutes` collection to find doc where `config.admin_email == user.email`
+- Super Admin is identified by: `user.email === import.meta.env.VITE_SUPER_ADMIN_EMAIL`
+- No self-registration allowed anywhere — all accounts created by Super Admin only
+
+### Firestore Security Rules
+```javascript
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /institutes/{instituteId} {
+      // Super admin can read all
+      allow read, write: if request.auth != null && request.auth.token.email == "SUPER_ADMIN_EMAIL_PLACEHOLDER";
+
+      // Institute admin can only read their own config
+      allow read: if request.auth != null;
+
+      match /students/{studentId} {
+        allow read, write: if request.auth != null;
+      }
+      match /payments/{paymentId} {
+        allow read, write: if request.auth != null;
+      }
+      match /expenses/{expenseId} {
+        allow read, write: if request.auth != null;
+      }
+      match /courses/{courseId} {
+        allow read, write: if request.auth != null;
+      }
+      match /batches/{batchId} {
+        allow read, write: if request.auth != null;
+      }
+      match /counters/{counterId} {
+        allow read, write: if request.auth != null;
+      }
+    }
+  }
+}
+```
+Note: Data isolation is enforced in app logic — each institute user only queries their own instituteId path.
+
+---
+
+## ENVIRONMENT VARIABLES (.env.example)
+
+```
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+VITE_SUPER_ADMIN_EMAIL=
+```
+
+---
+
+## DATA TYPES (src/types.ts)
+
+```typescript
+export type StudentStatus = "Active" | "Completed" | "Dropped" | "On Hold";
+export type CertificateStatus = "Not Issued" | "Issued";
+export type PaymentMode = "UPI" | "Cash" | "Bank Transfer" | "Cheque";
+export type ExpenseCategory =
+  | "Faculty Salary" | "Staff Salary" | "Rent" | "Electricity"
+  | "Internet" | "Marketing" | "Software Subscription"
+  | "Equipment Purchase" | "Maintenance" | "Miscellaneous";
+
+export interface StatusHistoryEntry {
+  previous_status: StudentStatus;
+  new_status: StudentStatus;
+  changed_date: string;
+  note: string;
+}
+
+export interface Student {
+  id: string;
+  registration_number: string;    // e.g. MAAC-2026-27-0001
+  linked_lead_id?: string;
+  name: string;
+  phone: string;
+  email: string;
+  address: string;
+  dob: string;                    // YYYY-MM-DD
+  admission_date: string;
+  course_type: string;
+  batch_name: string;
+  batch_start_date: string;
+  total_fees: number;
+  admission_fees: number;
+  remaining_fees: number;
+  status: StudentStatus;
+  certificate_status: CertificateStatus;
+  certificate_issue_date?: string;
+  dropout_date?: string;
+  dropout_reason?: string;
+  status_history?: StatusHistoryEntry[];
+  created_timestamp: any;
+}
+
+export interface Payment {
+  id: string;
+  student_id: string;
+  amount: number;
+  mode: PaymentMode;
+  date: string;
+  type: string;                   // "Admission Fee" | "Installment" | "Full Payment"
+  note?: string;
+  timestamp: any;
+}
+
+export interface Expense {
+  id: string;
+  category: ExpenseCategory;
+  amount: number;
+  date: string;
+  note?: string;
+  created_timestamp: any;
+}
+
+export interface CourseOption {
+  id: string;
+  name: string;
+  active: boolean;
+  fees?: number;
+  duration_months?: number;
+  created_timestamp?: any;
+}
+
+export interface BatchOption {
+  id: string;
+  name: string;
+  active: boolean;
+  created_timestamp?: any;
+}
+
+export interface InstituteConfig {
+  institute_id: string;
+  name: string;
+  reg_prefix: string;
+  email: string;
+  phone: string;
+  city: string;
+  address: string;
+  logo_url?: string;
+  admin_email: string;
+  status: "active" | "suspended" | "trial";
+  plan: "basic" | "standard" | "pro";
+  created_date: string;
+  emailjs_service_id?: string;
+  emailjs_template_admission?: string;
+  emailjs_template_payment?: string;
+  emailjs_public_key?: string;
+  whatsapp_number?: string;
+  features: {
+    finance_module: boolean;
+    fee_reminders: boolean;
+    birthday_greetings: boolean;
+    certificate_verify: boolean;
+    import_leads: boolean;
+    backup_restore: boolean;
+  };
+}
+```
+
+---
+
+## APPLICATION FLOW
+
+### Boot Sequence
+1. App loads → check Firebase Auth state
+2. If not logged in → show unified Login screen
+3. If logged in:
+   - If `user.email === VITE_SUPER_ADMIN_EMAIL` → load **Super Admin Panel**
+   - Else → find institute where `config.admin_email === user.email`
+     - If found and `status === "active"` → load **Institute Portal** with their data
+     - If found and `status === "suspended"` → show suspension message screen
+     - If not found → show "Unauthorized" screen
+
+### Login Screen (Shared for all)
+- Clean login form: Email + Password
+- "Forgot Password?" link → Firebase `sendPasswordResetEmail`
+- No signup button anywhere
+- Show institute name/branding only AFTER successful login (can't know which institute before login)
+- Error messages: wrong credentials, too many attempts, account disabled
+
+---
+
+## MODULE 1 — SUPER ADMIN PANEL
+
+Super Admin email is set via `VITE_SUPER_ADMIN_EMAIL` env variable.
+
+### Super Admin Dashboard
+- Total institutes count (active / suspended / trial)
+- Total students across all institutes (read all subcollections)
+- Quick stats cards
+
+### Institute Management (Main feature)
+List of all institutes as cards/table showing:
+- Institute name, city, plan, status badge, admin email, created date
+- Action buttons: Edit | Suspend | Activate | View Portal | Delete
+
+**Add New Institute modal:**
+- Institute Name (required)
+- Registration Prefix (required, e.g. "MAAC", "ABC") — max 6 chars, uppercase auto
+- Admin Email (required) — this will be the Firebase Auth user's email
+- Temporary Password (required) — Super Admin sets initial password
+- Phone, City, Address
+- Plan: Basic / Standard / Pro
+- Features toggle (checkboxes for each feature)
+- On submit:
+  1. Create Firebase Auth user with email + password using `createUserWithEmailAndPassword`
+  2. Send password reset email so institute can set their own password
+  3. Create `institutes/{instituteId}/config` document
+  4. Show success with instituteId
+
+**Edit Institute modal:**
+- Edit all config fields except admin_email (email change is complex, skip for now)
+- Toggle features on/off
+- Change plan
+- Change status (active/suspended/trial)
+
+**Institute Suspension:**
+- When suspended, institute login shows: "Your account has been suspended. Contact support."
+- Super Admin can reactivate anytime
+
+**View Portal as Institute:**
+- Super Admin can click "View Portal" → loads the institute portal in the same app with that institute's data (read-only impersonation mode — clearly labeled "VIEWING AS [INSTITUTE NAME]")
+
+---
+
+## MODULE 2 — INSTITUTE PORTAL
+
+All data queries use: `collection(db, "institutes/{instituteId}/students")` etc.
+`instituteId` is determined at login from the matching config document.
+Institute name, reg_prefix, features come from their config document.
+
+### Navigation (Top navbar + mobile responsive hamburger)
+Tabs shown based on `features` flags from config:
+- Dashboard (always shown)
+- Enroll (always shown)
+- Import Leads (if `features.import_leads`)
+- Registry (always shown)
+- Finance (if `features.finance_module`)
+- Reminders (if `features.fee_reminders`)
+- Birthdays (if `features.birthday_greetings`)
+- Settings (always shown)
+- Verify (always shown — public certificate verify)
+- Logout button
+
+Header shows: Institute Logo (if available) | Institute Name | "Admission & Fees Portal"
+
+---
+
+### VIEW 1 — Dashboard
+
+Stats cards (real-time from Firestore streams):
+- Total Students (Active count)
+- Total Revenue Collected (sum of all payments)
+- Pending Fees (sum of remaining_fees across active students)
+- New Admissions This Month
+- Dropout count
+- Certificate Issued count
+
+Charts:
+- Monthly admissions bar chart (last 6 months)
+- Fee collection vs pending donut/pie
+- Course-wise student distribution
+
+Recent Activity:
+- Last 5 admissions
+- Last 5 payments received
+- Students with fee due > 30 days
+
+---
+
+### VIEW 2 — Enroll (New Admission Form)
+
+Fields:
+- Full Name (required)
+- Phone (required, 10 digit validation)
+- Email (optional)
+- Address (optional)
+- Date of Birth (optional)
+- Admission Date (default: today)
+- Course (dropdown from institute's courses subcollection, only active)
+- Batch (dropdown from institute's batches subcollection, only active)
+- Batch Start Date
+- Total Fees (number, required)
+- Admission Fees Paid (number, required, cannot exceed total fees)
+- Payment Mode (UPI / Cash / Bank Transfer / Cheque)
+- Payment Note (optional)
+
+On Submit:
+1. Run Firestore transaction to generate registration number:
+   - Get financial year key: e.g. "2026-27" from admission date
+   - Read `institutes/{instituteId}/counters/{fyKey}` → increment seq atomically
+   - Format: `{reg_prefix}-{fyKey}-{seq padded to 4 digits}`
+   - Example: MAAC-2026-27-0001
+2. Create student document in `institutes/{instituteId}/students/`
+3. Create payment document in `institutes/{instituteId}/payments/`
+4. Send admission confirmation email via EmailJS (using institute's own EmailJS config from their config doc)
+5. Show success screen with registration number and Print Receipt option
+
+**Pre-fill from Lead (Import Leads flow):**
+- If navigated from Import Leads with a leadId, pre-fill name, phone, email, course from lead data
+
+---
+
+### VIEW 3 — Import Leads
+
+Purpose: Import leads from CSV or manual entry, then convert to admission.
+
+Features:
+- Upload CSV file (columns: name, phone, email, course_interest, source, notes)
+- Preview table of parsed leads before import
+- Import to a local `leads` list (not a subcollection — stored in app state or optionally in `institutes/{instituteId}/leads/`)
+- Each lead row has "Enroll Now" button → navigates to Enroll view with pre-filled data
+- Delete lead from list
+- Clear all leads button
+- Show "already enrolled" badge if phone matches an existing student
+
+Visible only if `features.import_leads === true`
+
+---
+
+### VIEW 4 — Registry (Student List)
+
+Full searchable, filterable student directory.
+
+Filters:
+- Search by name, phone, registration number
+- Filter by Course
+- Filter by Batch
+- Filter by Status (Active / Completed / Dropped / On Hold)
+- Filter by Certificate Status
+- Date range filter (admission date)
+
+Table columns:
+- Registration No | Name | Phone | Course | Batch | Status | Fees Remaining | Actions
+
+Actions per row:
+- View Details button → navigates to Student Detail view
+- Quick WhatsApp button (opens `https://wa.me/91{phone}`)
+
+Pagination: 20 per page
+
+Export:
+- Export filtered list as CSV
+
+---
+
+### VIEW 5 — Student Detail
+
+Full student profile page.
+
+Sections:
+
+**A. Profile Card**
+- All student fields (editable inline or via Edit modal)
+- Status badge with color (Active=green, Completed=blue, Dropped=red, On Hold=yellow)
+- Change Status button → modal with new status + note → updates status_history array
+
+**B. Fee Summary Card**
+- Total Fees | Total Paid | Remaining
+- Progress bar (% collected)
+- Payment Mode breakdown
+
+**C. Payment History Table**
+- All payments for this student
+- Columns: Date | Amount | Mode | Type | Note | Receipt
+- "Add Payment" button → modal:
+  - Amount (cannot exceed remaining_fees)
+  - Mode (UPI/Cash/Bank Transfer/Cheque)
+  - Type (Installment / Full Payment / Late Fee)
+  - Date (default today)
+  - Note
+  - On save: update student's remaining_fees, create payment doc, send payment receipt email
+
+**D. Print Receipt**
+- Professional receipt modal showing:
+  - Institute name, logo area
+  - Student details
+  - Payment details
+  - "Official Electronic Receipt" label
+  - Print button (window.print())
+
+**E. Certificate Section**
+- Current status: Not Issued / Issued
+- If Not Issued: "Issue Certificate" button → sets certificate_status = "Issued", saves certificate_issue_date = today
+- If Issued: Show issue date, "Revoke" button
+- Certificate verify URL: `{app_url}?verify=1` — shown as QR code hint
+
+**F. Status History Timeline**
+- Chronological list of all status changes with dates and notes
+
+**G. Delete Student**
+- Danger zone at bottom
+- Requires typing student name to confirm
+- Soft delete (adds `is_deleted: true`) OR hard delete — provide both options with warning
+
+---
+
+### VIEW 6 — Finance (if features.finance_module)
+
+**Fee Collection Summary (top cards):**
+- Today's Collection
+- This Week's Collection
+- This Month's Collection
+- Total All Time
+
+**Date Range Filter:**
+- Preset: Today / This Week / This Month / This Financial Year / Custom Range
+
+**Revenue Table:**
+- Filtered payments table with student name, course, amount, mode, date
+
+**Outstanding Fees Section:**
+- Students with remaining_fees > 0
+- Sorted by remaining amount descending
+- Quick WhatsApp reminder button per row
+
+**Expense Management:**
+- Add Expense form: Category | Amount | Date | Note
+- Expense list table with filters
+- Monthly expense breakdown by category
+
+**P&L Report:**
+- Income (payments in period) vs Expenses (expenses in period)
+- Net profit/loss card
+- Month-wise P&L table
+
+**Export options:**
+- Export payments as CSV
+- Export expenses as CSV
+- Export outstanding fees as CSV
+- Export P&L summary as CSV
+
+---
+
+### VIEW 7 — Fee Reminders (if features.fee_reminders)
+
+Students with pending fees > 0, grouped by urgency:
+- 🔴 Overdue (pending > 60 days since last payment or admission)
+- 🟡 Due Soon (pending 30-60 days)
+- 🟢 Recent (pending < 30 days)
+
+Per student row:
+- Name | Phone | Reg No | Course | Remaining | Days Since Last Payment
+- WhatsApp Reminder button → opens WhatsApp with pre-filled message:
+  `Hi {name}, this is a reminder from {institute_name} that your fee of ₹{remaining} is pending (Reg: {reg_no}). Please pay at earliest. - Team {institute_name}`
+- Email Reminder button → sends via EmailJS with institute's config
+- Mark as Notified (saves last_notified_date)
+
+Bulk Actions:
+- Select all / select filtered → Send Bulk WhatsApp (opens individual links in sequence with confirm dialog)
+
+---
+
+### VIEW 8 — Birthdays (if features.birthday_greetings)
+
+Students with birthdays:
+- Today's Birthdays (highlighted)
+- This Week's Birthdays
+- This Month's Birthdays
+
+Per student:
+- Name | Course | Phone | Age turning
+- WhatsApp Greeting button → opens WA with:
+  `Happy Birthday {name}! 🎉 Wishing you a wonderful day from Team {institute_name}! 🎂`
+- Email Greeting button → sends via EmailJS
+
+---
+
+### VIEW 9 — Settings
+
+Tabs inside settings:
+
+**A. Institute Profile**
+- View current institute name, prefix, email, city, address
+- Edit institute name, phone, city, address (saves to config doc)
+- These fields are read-only if not permitted (Super Admin can edit all)
+
+**B. Courses Management**
+- List of courses for this institute
+- Add Course (name, optional fee amount, optional duration)
+- Edit Course name
+- Toggle Active/Inactive
+- Delete Course (only if no students enrolled in it)
+
+**C. Batches Management**
+- List of batches
+- Add Batch (name e.g. "Morning Batch Jan 2027")
+- Toggle Active/Inactive
+- Delete Batch
+
+**D. Email Configuration (EmailJS)**
+- Fields: Service ID, Public Key, Admission Template ID, Payment Receipt Template ID
+- Test Email button → sends a test email to admin's email
+- Instructions link to EmailJS setup guide
+- Visible only if `features.finance_module` or always (since admission email is core)
+
+**E. Data Backup & Restore (if features.backup_restore)**
+- Export All Data as JSON (students + payments + expenses + courses + batches)
+- Import from JSON backup
+- Clear All Data (requires typing institute name to confirm, dangerous action)
+- Export students as CSV
+
+**F. Change Password**
+- Current Password | New Password | Confirm Password
+- Uses Firebase `updatePassword` method
+- Requires recent login (handle `requires-recent-login` error with re-auth modal)
+
+---
+
+### PUBLIC VIEW — Certificate Verification
+
+Route: `?verify=1` in URL (no auth required)
+
+Page:
+- Institute logo area + "Certificate Verification Portal"
+- Input: Registration Number
+- Search button → queries `students` where `registration_number == input`
+- NOTE: This searches across the specific institute's subcollection
+  - To make this work without knowing the institute: either
+    - Option A: URL includes instituteId: `?verify=1&inst=inst_001`
+    - Option B: Search across all institutes (Super Admin level query)
+  - Use Option A — when issuing certificate, the verify URL includes instituteId
+- If found and certificate_status === "Issued": show green success card with student name, course, issue date
+- If found but certificate_status === "Not Issued": show "Certificate not yet issued"
+- If not found: show "No record found"
+- Back to Login button
+
+---
+
+## REGISTRATION NUMBER GENERATION
+
+Use Firestore transaction to prevent duplicate numbers:
+
+```typescript
+async function generateRegistrationNumber(instituteId: string, regPrefix: string, admissionDate: string): Promise<string> {
+  const year = new Date(admissionDate).getFullYear();
+  const month = new Date(admissionDate).getMonth() + 1;
+  const fyYear = month >= 4 ? year : year - 1;
+  const fyKey = `${fyYear}-${String(fyYear + 1).slice(-2)}`;
+  
+  const counterRef = doc(db, `institutes/${instituteId}/counters/${fyKey}`);
+  
+  let regNumber = "";
+  await runTransaction(db, async (transaction) => {
+    const counterDoc = await transaction.get(counterRef);
+    const currentSeq = counterDoc.exists() ? counterDoc.data().seq : 0;
+    const nextSeq = currentSeq + 1;
+    transaction.set(counterRef, { seq: nextSeq }, { merge: true });
+    regNumber = `${regPrefix}-${fyKey}-${String(nextSeq).padStart(4, "0")}`;
+  });
+  
+  return regNumber;
+}
+```
+
+---
+
+## UI/UX REQUIREMENTS
+
+### Theme
+- Background: `bg-slate-950`
+- Cards: `bg-slate-900 border border-slate-800`
+- Accent: teal-400 / teal-500
+- Success: green-400
+- Warning: yellow-400
+- Error: red-400
+- Text primary: white / slate-100
+- Text secondary: slate-400
+
+### Light Mode Toggle
+- Toggle button in header (sun/moon icon)
+- Persist in sessionStorage
+- Light mode: white background, slate-900 text, teal accents maintained
+
+### Responsive Design
+- Mobile-first
+- Hamburger menu on mobile
+- Horizontal scroll tab bar on tablet
+- Full navbar on desktop (xl breakpoint)
+- Tables: horizontal scroll on mobile
+- Cards: stack vertically on mobile
+
+### Loading States
+- Full page loader on initial auth check
+- Skeleton loaders or spinner on data loads
+- Button loading state during form submissions
+
+### Error Handling
+- All Firestore errors caught and shown as user-friendly toast/alert
+- Form validation with inline error messages
+- Network offline detection
+
+### Toast Notifications
+- Success toast (green) for saves, enrollments, payments
+- Error toast (red) for failures
+- Info toast (blue) for informational messages
+- Auto-dismiss after 4 seconds
+
+---
+
+## PACKAGE.JSON DEPENDENCIES
+
+```json
+{
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "firebase": "^10.x",
+    "@emailjs/browser": "^4.x",
+    "lucide-react": "^0.400.0",
+    "papaparse": "^5.x",
+    "@types/papaparse": "^5.x"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.x",
+    "typescript": "^5.x",
+    "vite": "^5.x",
+    "tailwindcss": "^3.x",
+    "autoprefixer": "^10.x",
+    "postcss": "^8.x"
+  }
+}
+```
+
+---
+
+## FILE STRUCTURE TO GENERATE
+
+```
+src/
+  firebase.ts                    ← Firebase init from env vars
+  types.ts                       ← All TypeScript interfaces
+  main.tsx                       ← Entry point
+  index.css                      ← Tailwind + custom styles
+  App.tsx                        ← Root: auth check, role routing
+
+  contexts/
+    AuthContext.tsx               ← user, instituteId, config, isSuperAdmin
+    InstituteContext.tsx          ← config, students, payments, expenses, courses, batches streams
+
+  components/
+    LoginView.tsx                 ← Shared login for all users
+    SuspendedView.tsx             ← Shown when institute is suspended
+    UnauthorizedView.tsx          ← Unknown user
+
+    superadmin/
+      SuperAdminLayout.tsx        ← Super admin shell
+      SuperAdminDashboard.tsx     ← Overview stats
+      InstituteList.tsx           ← All institutes table
+      AddInstituteModal.tsx       ← Create new institute + Firebase Auth user
+      EditInstituteModal.tsx      ← Edit config + features
+
+    institute/
+      InstituteLayout.tsx         ← Nav header + main content area
+      Dashboard.tsx
+      AdmissionForm.tsx
+      ImportLeads.tsx
+      StudentList.tsx
+      StudentDetail.tsx
+      Finance.tsx
+      FeeReminders.tsx
+      Birthdays.tsx
+      Settings.tsx
+      PublicVerify.tsx
+      ReceiptModal.tsx
+
+    shared/
+      Toast.tsx                   ← Toast notification system
+      ConfirmModal.tsx            ← Reusable confirmation dialog
+      Loader.tsx                  ← Loading spinners
+      StatCard.tsx                ← Reusable stat card
+      EmptyState.tsx              ← Empty state illustrations
+
+  utils/
+    financialYear.ts              ← FY key calculation
+    formatters.ts                 ← Currency, date formatters
+    validators.ts                 ← Phone, email validation
+
+  services/
+    emailService.ts               ← EmailJS send functions using institute config
+    registrationService.ts        ← Reg number generation transaction
+```
+
+---
+
+## IMPORTANT CONSTRAINTS
+
+1. **NO self-signup** — only Super Admin can create institute accounts
+2. **Data isolation is critical** — always use `institutes/{instituteId}/collectionName` path, never top-level collections
+3. **instituteId** is determined at runtime from auth — never trust client-provided values for security-critical paths
+4. **Super Admin** can read all institutes but institute users can only access their own path
+5. **Firestore streams** (`onSnapshot`) for real-time updates on students, payments, expenses, courses, batches
+6. **Registration numbers** must be generated via Firestore transaction (atomic, no duplicates)
+7. **EmailJS config** is per-institute — read from their config doc before sending emails
+8. **Features flags** — check `config.features.xxx` before rendering any feature-gated module
+9. **Password Reset** — Firebase `sendPasswordResetEmail` for forgot password
+10. **No hardcoded institute names** — everything comes from `config.name`, `config.reg_prefix` etc.
+11. All currency in Indian Rupees (₹), date format DD/MM/YYYY for display, YYYY-MM-DD for storage
+12. Indian Financial Year: April to March (FY 2026-27 = April 2026 to March 2027)
+
+---
+
+## GENERATE ALL FILES COMPLETELY
+
+Generate every file listed in the file structure above. Do not skip any file. Each file must be complete and functional — no placeholder comments like "// implement this later". The app should work end-to-end when all files are combined.
+
+Start with:
+1. `src/firebase.ts`
+2. `src/types.ts`
+3. `src/contexts/AuthContext.tsx`
+4. `src/contexts/InstituteContext.tsx`
+5. `src/App.tsx`
+6. Then all components in order
+
+After generating all files, provide:
+- `firestore.rules` — complete security rules
+- `.env.example` — all required env variables
+- `README.md` — setup instructions including:
+  - Firebase project creation steps
+  - How to set Super Admin email
+  - How to add first institute via Super Admin panel
+  - EmailJS setup per institute
+  - Deployment to Firebase Hosting
+
+---
+
+## PROMPT END

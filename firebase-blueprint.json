@@ -1,0 +1,120 @@
+{
+  "entities": {
+    "Institute": {
+      "title": "Institute",
+      "description": "Multi-tenant institute configuration",
+      "type": "object",
+      "properties": {
+        "institute_id": { "type": "string" },
+        "name": { "type": "string" },
+        "reg_prefix": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "city": { "type": "string" },
+        "address": { "type": "string" },
+        "admin_email": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "suspended", "trial"] },
+        "plan": { "type": "string", "enum": ["basic", "standard", "pro"] },
+        "created_date": { "type": "string" }
+      },
+      "required": ["institute_id", "name", "reg_prefix", "admin_email", "status"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Student admission registry entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "registration_number": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "admission_date": { "type": "string" },
+        "course_type": { "type": "string" },
+        "batch_name": { "type": "string" },
+        "total_fees": { "type": "number" },
+        "admission_fees": { "type": "number" },
+        "remaining_fees": { "type": "number" },
+        "status": { "type": "string", "enum": ["Active", "Completed", "Dropped", "On Hold"] },
+        "certificate_status": { "type": "string", "enum": ["Not Issued", "Issued"] }
+      },
+      "required": ["id", "registration_number", "name", "phone", "course_type", "total_fees", "status"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Student fee payment transaction",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "student_id": { "type": "string" },
+        "amount": { "type": "number" },
+        "mode": { "type": "string", "enum": ["UPI", "Cash", "Bank Transfer", "Cheque"] },
+        "date": { "type": "string" },
+        "type": { "type": "string" }
+      },
+      "required": ["id", "student_id", "amount", "mode", "date"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Institute operational expense voucher",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "category": { "type": "string" },
+        "amount": { "type": "number" },
+        "date": { "type": "string" }
+      },
+      "required": ["id", "category", "amount", "date"]
+    },
+    "Course": {
+      "title": "Course",
+      "description": "Course catalog option",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "fees": { "type": "number" },
+        "duration_months": { "type": "number" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "name", "active"]
+    },
+    "Batch": {
+      "title": "Batch",
+      "description": "Batch timing option",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "name", "active"]
+    }
+  },
+  "firestore": {
+    "/institutes/{instituteId}": {
+      "schema": { "$ref": "#/entities/Institute" },
+      "description": "Root multi-tenant institute document"
+    },
+    "/institutes/{instituteId}/students/{studentId}": {
+      "schema": { "$ref": "#/entities/Student" },
+      "description": "Enrolled student records for this institute"
+    },
+    "/institutes/{instituteId}/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "Payment transactions recorded for this institute"
+    },
+    "/institutes/{instituteId}/expenses/{expenseId}": {
+      "schema": { "$ref": "#/entities/Expense" },
+      "description": "Operational expense vouchers for this institute"
+    },
+    "/institutes/{instituteId}/courses/{courseId}": {
+      "schema": { "$ref": "#/entities/Course" },
+      "description": "Course catalog offerings for this institute"
+    },
+    "/institutes/{instituteId}/batches/{batchId}": {
+      "schema": { "$ref": "#/entities/Batch" },
+      "description": "Scheduled batches for this institute"
+    }
+  }
+}

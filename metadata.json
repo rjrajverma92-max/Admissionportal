@@ -1,0 +1,6 @@
+{
+  "name": "Multi-Institute Admission & Fees Portal",
+  "description": "Multi-tenant admission and fee management platform with isolated subcollections, super admin panel, student registry, finance P&L, reminders, and public certificate verification.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
