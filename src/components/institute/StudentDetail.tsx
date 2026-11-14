@@ -92,6 +92,8 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
   const [editPhone, setEditPhone] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [editAddress, setEditAddress] = useState("");
+  const [editFatherName, setEditFatherName] = useState("");
+  const [editMotherName, setEditMotherName] = useState("");
   const [editCourse, setEditCourse] = useState("");
   const [editBatch, setEditBatch] = useState("");
 
@@ -110,6 +112,10 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
   }
 
   // Fee calculation logic
+  const totalCourseFees = Number(student.total_fees || 0);
+  const universityTotalFees = Number(student.university_total_fees || 0);
+  const institutePortion = totalCourseFees - universityTotalFees;
+
   const universityPaid = studentPayments
     .filter((p) => p.university_name && p.university_name !== "")
     .reduce((sum, p) => sum + Number(p.amount || 0), 0);
@@ -120,13 +126,11 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
 
   const totalCollected = institutePaid + universityPaid;
 
-  const totalCourseFees = Number(student.total_fees || 0);
-
   const outstandingBalance = totalCourseFees - totalCollected;
 
-  const universityTotalFees = Number(student.university_total_fees || 0);
-
   const universityBalance = universityTotalFees - universityPaid;
+
+  const instituteBalance = institutePortion - institutePaid;
 
   const hasAffiliatedUniv = Boolean(
     student.affiliated_university && student.affiliated_university.trim()
@@ -161,6 +165,8 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
     setEditPhone(student.phone);
     setEditEmail(student.email || "");
     setEditAddress(student.address || "");
+    setEditFatherName(student.father_name || "");
+    setEditMotherName(student.mother_name || "");
     setEditCourse(student.course_type);
     setEditBatch(student.batch_name);
     setIsEditProfileModalOpen(true);
@@ -173,6 +179,8 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
       phone: editPhone.trim(),
       email: editEmail.trim(),
       address: editAddress.trim(),
+      father_name: editFatherName.trim(),
+      mother_name: editMotherName.trim(),
       course_type: editCourse,
       batch_name: editBatch,
     });
@@ -345,6 +353,16 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
               </div>
             </div>
 
+            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+              <span className="text-slate-500 block text-[10px] uppercase">Father's Name</span>
+              <span className="text-white">{student.father_name || "Not provided"}</span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+              <span className="text-slate-500 block text-[10px] uppercase">Mother's Name</span>
+              <span className="text-white">{student.mother_name || "Not provided"}</span>
+            </div>
+
             <div className="sm:col-span-2 p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center gap-3">
               <MapPin className="w-4 h-4 text-teal-400 shrink-0" />
               <div>
@@ -364,6 +382,13 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
                 {student.batch_name} (Started {formatDate(student.batch_start_date)})
               </span>
             </div>
+
+            {student.session && (
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+                <span className="text-slate-500 block text-[10px] uppercase">Session</span>
+                <span className="text-amber-300 font-medium">{student.session}</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -407,14 +432,17 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
                 </span>
               </div>
 
-              {/* Rows 4, 5, 6, 7: ONLY if student.affiliated_university is set and not empty */}
+              {/* Rows 4 to 9: ONLY if student.affiliated_university is set and not empty */}
               {hasAffiliatedUniv && (
                 <>
-                  {/* Row 4: University Total Fees */}
+                  {/* Row 4: University Portion */}
                   <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex justify-between items-center text-xs">
-                    <span className="text-amber-400 flex items-center gap-1.5 font-medium">
-                      <GraduationCap className="w-3.5 h-3.5" /> University Total Fees:
-                    </span>
+                    <div>
+                      <span className="text-amber-400 flex items-center gap-1.5 font-medium">
+                        <GraduationCap className="w-3.5 h-3.5" /> University Portion:
+                      </span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5">(included in total fees)</span>
+                    </div>
                     <span className="font-mono font-bold text-amber-400 text-sm">
                       {formatCurrency(universityTotalFees)}
                     </span>
@@ -442,13 +470,47 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
                     </span>
                   </div>
 
-                  {/* Row 7: Institute Paid */}
+                  {/* Row 7: Institute Portion */}
+                  <div className="p-3 rounded-xl bg-teal-500/10 border border-teal-500/20 flex justify-between items-center text-xs">
+                    <div>
+                      <span className="text-teal-400 flex items-center gap-1.5 font-medium">
+                        <Building2 className="w-3.5 h-3.5" /> Institute Portion:
+                      </span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5">(total fees minus university)</span>
+                    </div>
+                    <span className="font-mono font-bold text-teal-400 text-sm">
+                      {formatCurrency(institutePortion)}
+                    </span>
+                  </div>
+
+                  {/* Row 8: Institute Paid */}
                   <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800/80 flex justify-between items-center text-xs">
                     <span className="text-teal-400 flex items-center gap-1.5 font-medium">
                       <Building2 className="w-3.5 h-3.5" /> Institute Paid:
                     </span>
-                    <span className="font-mono font-bold text-teal-400 text-sm">
+                    <span
+                      className={`font-mono font-bold text-sm flex items-center gap-1 ${
+                        institutePaid > institutePortion ? "text-rose-400" : "text-teal-400"
+                      }`}
+                    >
+                      {institutePaid > institutePortion && <span title="Institute Paid exceeds portion">⚠️</span>}
                       {formatCurrency(institutePaid)}
+                    </span>
+                  </div>
+
+                  {/* Row 9: Institute Balance */}
+                  <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex justify-between items-center text-xs">
+                    <span className="text-slate-400 font-medium">Institute Balance:</span>
+                    <span className="font-mono font-bold text-sm">
+                      {instituteBalance < 0 ? (
+                        <span className="text-rose-400">
+                          ⚠️ Overpaid by {formatCurrency(Math.abs(instituteBalance))} — University fees may be pending
+                        </span>
+                      ) : instituteBalance > 0 ? (
+                        <span className="text-amber-400">{formatCurrency(instituteBalance)}</span>
+                      ) : (
+                        <span className="text-emerald-400">Cleared ✓</span>
+                      )}
                     </span>
                   </div>
                 </>
@@ -627,16 +689,12 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
                       </td>
                       <td className="py-3 px-4 text-slate-400 truncate max-w-xs">{p.note || "-"}</td>
                       <td className="py-3 px-4 text-right">
-                        {isUnivPayment ? (
-                          <span className="text-slate-600 font-mono pr-4">-</span>
-                        ) : (
-                          <button
-                            onClick={() => setSelectedPaymentForReceipt(p)}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-teal-300 border border-slate-700 text-[11px] font-semibold transition"
-                          >
-                            <Printer className="w-3 h-3" /> View Receipt
-                          </button>
-                        )}
+                        <button
+                          onClick={() => setSelectedPaymentForReceipt(p)}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-teal-300 border border-slate-700 text-[11px] font-semibold transition"
+                        >
+                          <Printer className="w-3 h-3" /> View Receipt
+                        </button>
                       </td>
                     </tr>
                   );
@@ -779,6 +837,7 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
           student={student}
           payment={selectedPaymentForReceipt}
           config={config}
+          allPayments={studentPayments}
         />
       )}
 
@@ -797,6 +856,26 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
             </p>
 
             <form onSubmit={handleAddPaymentSubmit} className="space-y-3">
+              {hasAffiliatedUniv &&
+                (!payPaymentFor || payPaymentFor === ("" as any) || !payUniversity) &&
+                universityBalance > 0 &&
+                institutePaid < institutePortion && (
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-300 text-xs">
+                    ⚠️ University fee of {formatCurrency(universityBalance)} is pending for {student.affiliated_university}. Consider collecting university payment first.
+                  </div>
+                )}
+
+              {hasAffiliatedUniv &&
+                (!payPaymentFor || payPaymentFor === ("" as any) || !payUniversity) &&
+                institutePaid >= institutePortion &&
+                universityBalance > 0 && (
+                  <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-300 text-xs space-y-1">
+                    <div>
+                      ⚠️ Institute portion is fully collected. Remaining {formatCurrency(outstandingBalance)} should go to university ({student.affiliated_university}).
+                    </div>
+                    <div>Please select the university in Payment For.</div>
+                  </div>
+                )}
               <div>
                 <label className="block text-[11px] font-semibold text-slate-300 mb-1">
                   Amount to Collect (₹) *
@@ -909,13 +988,23 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  disabled={submittingPayment}
-                  className="px-5 py-2 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-semibold text-xs transition shadow-lg shadow-teal-500/20 disabled:opacity-50"
-                >
-                  {submittingPayment ? "Recording..." : "Save & Generate Receipt"}
-                </button>
+                {(() => {
+                  const isSaveBlocked =
+                    hasAffiliatedUniv &&
+                    (!payPaymentFor || payPaymentFor === ("" as any) || !payUniversity) &&
+                    institutePaid >= institutePortion &&
+                    universityBalance > 0;
+                  return (
+                    <button
+                      type="submit"
+                      disabled={submittingPayment || isSaveBlocked}
+                      className="px-5 py-2 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-semibold text-xs transition shadow-lg shadow-teal-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={isSaveBlocked ? "Institute portion is fully collected. Please select university." : ""}
+                    >
+                      {submittingPayment ? "Recording..." : "Save & Generate Receipt"}
+                    </button>
+                  );
+                })()}
               </div>
             </form>
           </div>
@@ -1036,6 +1125,27 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
                   onChange={(e) => setEditAddress(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Father's Name</label>
+                  <input
+                    type="text"
+                    value={editFatherName}
+                    onChange={(e) => setEditFatherName(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Mother's Name</label>
+                  <input
+                    type="text"
+                    value={editMotherName}
+                    onChange={(e) => setEditMotherName(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

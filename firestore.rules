@@ -6,6 +6,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Release notes collection
+    match /release_notes/{noteId} {
+      allow read, write: if true;
+    }
+
     // Multi-tenant institute management structure
     match /institutes/{instituteId} {
       // Allow reading, creating, updating, and deleting institute tenant config

@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { InstituteConfig } from "../../types";
 import { StatCard } from "../shared/StatCard";
+import { useToast } from "../shared/Toast";
+import { getPlanFeatures } from "../../utils/planFeatures";
 import {
   Building2,
   Users,
@@ -10,15 +12,16 @@ import {
   Shield,
   Layers,
   Bug,
+  RefreshCw,
 } from "lucide-react";
 import { formatCurrency } from "../../utils/formatters";
 import { db, isFirebaseConfigured } from "../../firebase";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, updateDoc, doc } from "firebase/firestore";
 
 interface SuperAdminDashboardProps {
   institutes: InstituteConfig[];
   onOpenAddModal: () => void;
-  onSelectTab: (tab: "institutes" | "dashboard" | "debug") => void;
+  onSelectTab: (tab: "institutes" | "dashboard" | "debug" | "releases") => void;
 }
 
 export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
@@ -26,8 +29,31 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
   onOpenAddModal,
   onSelectTab,
 }) => {
+  const { success, error } = useToast();
   const [totalStudents, setTotalStudents] = useState<number>(0);
   const [totalRevenue, setTotalRevenue] = useState<number>(0);
+  const [syncing, setSyncing] = useState<boolean>(false);
+
+  const syncPlanFeatures = async () => {
+    if (!isFirebaseConfigured || !db) return;
+    setSyncing(true);
+    try {
+      for (const inst of institutes) {
+        const correctFeatures = getPlanFeatures(
+          inst.plan === "pro" ? "pro" : "standard"
+        );
+        await updateDoc(
+          doc(db, "institutes", inst.institute_id),
+          { "config.features": correctFeatures }
+        );
+      }
+      success("All institute features synced with their plan!");
+    } catch (err: any) {
+      error(err.message || "Failed to sync plan features");
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   // Status breakdown
   const { activeCount, suspendedCount, trialCount } = useMemo(() => {
@@ -187,11 +213,13 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
       {/* Plan Breakdown & Summary */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Tier Distribution Card */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-300 mb-4 flex items-center justify-between">
-            <span>Tier Distribution</span>
-            <Sparkles className="w-4 h-4 text-teal-400" />
-          </h3>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+              <span>Tier Distribution</span>
+              <Sparkles className="w-4 h-4 text-teal-400" />
+            </h3>
+          </div>
           <div className="space-y-3">
             {[
               {
@@ -207,13 +235,6 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                 count: institutes.filter((i) => i.plan === "standard").length,
                 color: "bg-blue-500",
                 desc: "Core admission, reminders & certs",
-              },
-              {
-                name: "Basic Tier",
-                plan: "basic",
-                count: institutes.filter((i) => i.plan === "basic").length,
-                color: "bg-slate-600",
-                desc: "Basic registration & student list",
               },
             ].map((tier) => {
               const pct = institutes.length > 0 ? Math.round((tier.count / institutes.length) * 100) : 0;
@@ -232,6 +253,18 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                 </div>
               );
             })}
+          </div>
+
+          {/* Maintenance Sync Button */}
+          <div className="pt-2 border-t border-slate-800">
+            <button
+              onClick={syncPlanFeatures}
+              disabled={syncing}
+              className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-teal-300 border border-slate-700 text-xs font-semibold transition flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncing ? "animate-spin" : ""}`} />
+              <span>{syncing ? "Syncing Features..." : "🔄 Sync All Plan Features"}</span>
+            </button>
           </div>
         </div>
 

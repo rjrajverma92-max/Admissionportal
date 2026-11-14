@@ -3,7 +3,7 @@ import { useInstitute } from "../../contexts/InstituteContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { useToast } from "../shared/Toast";
 import { ConfirmModal } from "../shared/ConfirmModal";
-import { CourseOption, BatchOption, UniversityOption } from "../../types";
+import { CourseOption, BatchOption, UniversityOption, SessionOption } from "../../types";
 import { testEmailConfig } from "../../services/emailService";
 import { auth, isFirebaseConfigured } from "../../firebase";
 import { updatePassword } from "firebase/auth";
@@ -25,6 +25,8 @@ import {
   AlertTriangle,
   Send,
   Sparkles,
+  Crown,
+  Calendar,
 } from "lucide-react";
 
 export const Settings: React.FC = () => {
@@ -45,6 +47,11 @@ export const Settings: React.FC = () => {
     updateUniversity,
     deleteUniversity,
     seedDefaultUniversitiesIfEmpty,
+    sessions,
+    addSession,
+    updateSession,
+    deleteSession,
+    seedDefaultSessionsIfEmpty,
     backupDataAsJson,
     restoreDataFromJson,
     clearAllInstituteData,
@@ -53,7 +60,7 @@ export const Settings: React.FC = () => {
   const { success, error, info } = useToast();
 
   const [activeTab, setActiveTab] = useState<
-    "profile" | "courses" | "batches" | "universities" | "email" | "backup" | "password"
+    "profile" | "courses" | "batches" | "sessions" | "universities" | "email" | "backup" | "password"
   >("profile");
 
   // Profile Edit State
@@ -80,6 +87,48 @@ export const Settings: React.FC = () => {
 
   // Batch State
   const [newBatchName, setNewBatchName] = useState("");
+
+  // Session State
+  const [newSessionName, setNewSessionName] = useState("");
+  const [newSessionYearKey, setNewSessionYearKey] = useState("2026-27");
+  const [newSessionMonth, setNewSessionMonth] = useState("January");
+  const [selectedSessionForDelete, setSelectedSessionForDelete] = useState<SessionOption | null>(null);
+
+  useEffect(() => {
+    if (newSessionMonth && newSessionYearKey) {
+      setNewSessionName(`${newSessionMonth} ${newSessionYearKey}`);
+    }
+  }, [newSessionMonth, newSessionYearKey]);
+
+  useEffect(() => {
+    if (activeTab === "sessions" && sessions.length === 0) {
+      seedDefaultSessionsIfEmpty();
+    }
+  }, [activeTab, sessions.length, seedDefaultSessionsIfEmpty]);
+
+  const handleAddSession = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSessionName.trim() || !newSessionYearKey.trim()) {
+      error("Session name and year key are required.");
+      return;
+    }
+    await addSession(newSessionName, newSessionYearKey, newSessionMonth);
+    setNewSessionName("");
+    setNewSessionYearKey("2026-27");
+    setNewSessionMonth("January");
+    success("Session added successfully!");
+  };
+
+  const handleDeleteSessionConfirmed = async () => {
+    if (!selectedSessionForDelete) return;
+    const res = await deleteSession(selectedSessionForDelete.id);
+    if (res.success) {
+      success("Session deleted successfully.");
+    } else {
+      error(res.error || "Failed to delete session.");
+    }
+    setSelectedSessionForDelete(null);
+  };
 
   // University State
   const [newUnivName, setNewUnivName] = useState("");
@@ -309,8 +358,18 @@ export const Settings: React.FC = () => {
           { id: "profile", label: "Institute Profile", icon: Building2 },
           { id: "courses", label: `Courses (${courses.length})`, icon: BookOpen },
           { id: "batches", label: `Batches (${batches.length})`, icon: Users },
-          { id: "universities", label: `Universities (${universities.length})`, icon: GraduationCap },
-          { id: "email", label: "EmailJS Integration", icon: Mail },
+          { id: "sessions", label: `Sessions (${sessions.length})`, icon: Calendar },
+          {
+            id: "universities",
+            label: `Universities (${universities.length})`,
+            icon: GraduationCap,
+          },
+          {
+            id: "email",
+            label: "EmailJS Integration",
+            icon: Mail,
+            hidden: !config.features?.email_notifications,
+          },
           {
             id: "backup",
             label: "Backup & Restore",
@@ -658,6 +717,153 @@ export const Settings: React.FC = () => {
         </div>
       )}
 
+      {/* TAB: Sessions Management */}
+      {activeTab === "sessions" && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-teal-400 mb-4 flex items-center gap-2">
+              <Plus className="w-4 h-4" /> Add Admission Session
+            </h3>
+            <form onSubmit={handleAddSession} className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                  Month *
+                </label>
+                <select
+                  value={newSessionMonth}
+                  onChange={(e) => setNewSessionMonth(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                >
+                  <option value="January">January</option>
+                  <option value="July">July</option>
+                  <option value="April">April</option>
+                  <option value="October">October</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                  Year Key *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newSessionYearKey}
+                  onChange={(e) => setNewSessionYearKey(e.target.value)}
+                  placeholder="e.g. 2026-27"
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                  Session Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newSessionName}
+                  onChange={(e) => setNewSessionName(e.target.value)}
+                  placeholder="e.g. January 2026-27"
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none font-semibold text-teal-300"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-2 px-4 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-semibold text-xs transition"
+              >
+                Save Session
+              </button>
+            </form>
+          </div>
+
+          <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+            <div className="p-4 bg-slate-950/60 border-b border-slate-800 flex items-center justify-between">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-white">
+                Configured Sessions ({sessions.length})
+              </h3>
+              {sessions.length === 0 && (
+                <button
+                  type="button"
+                  onClick={() => seedDefaultSessionsIfEmpty()}
+                  className="text-xs text-teal-400 hover:underline"
+                >
+                  Pre-seed Default Sessions
+                </button>
+              )}
+            </div>
+            <div className="divide-y divide-slate-800">
+              {sessions.length === 0 ? (
+                <div className="p-8 text-center text-slate-500 text-xs space-y-2">
+                  <p>No admission sessions configured.</p>
+                  <button
+                    onClick={() => seedDefaultSessionsIfEmpty()}
+                    className="text-teal-400 hover:underline text-xs"
+                  >
+                    Click here to load default sessions (January & July)
+                  </button>
+                </div>
+              ) : (
+                sessions.map((s) => (
+                  <div key={s.id} className="p-4 flex items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-semibold text-white">{s.name}</h4>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                          {s.year_key}
+                        </span>
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-teal-500/10 text-teal-300 border border-teal-500/20">
+                          {s.month}
+                        </span>
+                      </div>
+                      <span
+                        className={`inline-block mt-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                          s.active
+                            ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                            : "bg-slate-800 text-slate-500"
+                        }`}
+                      >
+                        {s.active ? "Active" : "Inactive"}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => updateSession(s.id, { active: !s.active })}
+                        className="px-2.5 py-1 text-[11px] rounded-lg bg-slate-800 text-slate-300 hover:text-white"
+                      >
+                        {s.active ? "Deactivate" : "Activate"}
+                      </button>
+                      <button
+                        onClick={() => setSelectedSessionForDelete(s)}
+                        className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-slate-800 transition"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Session Confirmation Modal */}
+      {selectedSessionForDelete && (
+        <ConfirmModal
+          isOpen={true}
+          onClose={() => setSelectedSessionForDelete(null)}
+          onConfirm={handleDeleteSessionConfirmed}
+          title={`Delete Session "${selectedSessionForDelete.name}"?`}
+          message="Are you sure you want to remove this session? If any students are currently enrolled under this session, deletion will be blocked."
+          confirmText="Delete Session"
+          isDanger={true}
+        />
+      )}
+
       {/* TAB: Universities Management */}
       {activeTab === "universities" && (
         <div className="space-y-6">
@@ -828,7 +1034,17 @@ export const Settings: React.FC = () => {
       )}
 
       {/* TAB D: EmailJS Configuration */}
-      {activeTab === "email" && (
+      {activeTab === "email" && !config.features?.email_notifications && (
+        <div className="max-w-md mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center shadow-xl">
+          <Crown className="w-10 h-10 text-amber-400 mx-auto mb-3" />
+          <h3 className="text-white font-semibold text-base">Pro Plan Feature</h3>
+          <p className="text-slate-400 text-sm mt-1">
+            This feature is available on Pro plan. Contact your administrator to upgrade.
+          </p>
+        </div>
+      )}
+
+      {activeTab === "email" && config.features?.email_notifications && (
         <div className="max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold uppercase tracking-wider text-teal-400 flex items-center gap-2">
@@ -930,6 +1146,16 @@ export const Settings: React.FC = () => {
       )}
 
       {/* TAB E: Data Backup & Restore */}
+      {activeTab === "backup" && !config.features?.backup_restore && (
+        <div className="max-w-md mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center shadow-xl">
+          <Crown className="w-10 h-10 text-amber-400 mx-auto mb-3" />
+          <h3 className="text-white font-semibold text-base">Pro Plan Feature</h3>
+          <p className="text-slate-400 text-sm mt-1">
+            This feature is available on Pro plan. Contact your administrator to upgrade.
+          </p>
+        </div>
+      )}
+
       {activeTab === "backup" && config.features?.backup_restore && (
         <div className="max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
           <div>

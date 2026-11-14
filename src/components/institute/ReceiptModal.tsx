@@ -1,5 +1,5 @@
 import React from "react";
-import { X, Printer, CheckCircle2, Building2 } from "lucide-react";
+import { X, Printer, CheckCircle2 } from "lucide-react";
 import { InstituteConfig, Student, Payment } from "../../types";
 import { formatCurrency, formatDate } from "../../utils/formatters";
 
@@ -9,6 +9,7 @@ interface ReceiptModalProps {
   student: Student;
   payment: Payment;
   config: InstituteConfig;
+  allPayments?: Payment[];
 }
 
 export const ReceiptModal: React.FC<ReceiptModalProps> = ({
@@ -17,6 +18,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   student,
   payment,
   config,
+  allPayments = [],
 }) => {
   if (!isOpen) return null;
 
@@ -24,14 +26,22 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
     window.print();
   };
 
-  const totalPaid = Math.max(0, student.total_fees - student.remaining_fees);
+  const totalPaid = allPayments.length > 0
+    ? allPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0)
+    : Math.max(0, student.total_fees - student.remaining_fees);
+
+  const balanceRemaining = Math.max(0, student.total_fees - totalPaid);
+
+  const paymentForDisplay = payment.payment_for && payment.payment_for.trim() !== ""
+    ? payment.payment_for
+    : "Course Fees";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto print:p-0 print:bg-white print:static">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl relative text-slate-100 my-8 print:border-none print:shadow-none print:bg-white print:text-black print:p-4">
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-xl w-full p-6 sm:p-8 shadow-2xl relative text-slate-100 my-8 print:border-none print:shadow-none print:bg-white print:text-black print:p-2 print:my-0">
         {/* Actions header (Hidden when printing) */}
         <div className="flex items-center justify-between pb-4 mb-6 border-b border-slate-800 print:hidden">
-          <div className="flex items-center gap-2 text-teal-400 font-semibold text-sm">
+          <div className="flex items-center gap-2 text-teal-400 font-semibold text-xs">
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
             <span>Official Electronic Payment Receipt</span>
           </div>
@@ -52,149 +62,108 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         </div>
 
         {/* Printable Receipt Paper */}
-        <div className="bg-slate-950 p-6 sm:p-8 rounded-2xl border border-slate-800 print:bg-white print:border-black print:text-black">
+        <div className="bg-slate-950 p-6 sm:p-8 rounded-2xl border border-slate-800 print:bg-white print:border-black print:text-black space-y-5">
           {/* Header */}
-          <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pb-6 border-b border-slate-800 print:border-gray-300">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                {config.logo_url ? (
-                  <img src={config.logo_url} alt={config.name} className="w-10 h-10 rounded object-cover" />
-                ) : (
-                  <div className="w-9 h-9 rounded bg-teal-500/20 border border-teal-500/30 text-teal-400 flex items-center justify-center font-bold text-sm">
-                    {config.reg_prefix.slice(0, 2)}
-                  </div>
-                )}
-                <h2 className="text-xl font-bold text-white print:text-black">{config.name}</h2>
-              </div>
-              <p className="text-xs text-slate-400 print:text-gray-600 max-w-sm leading-relaxed">
-                {config.address}
-              </p>
-              <p className="text-xs text-slate-400 print:text-gray-600 mt-1">
-                Phone: {config.phone} • Email: {config.email}
-              </p>
+          <div className="text-center pb-5 border-b border-slate-800 print:border-gray-300">
+            {config.logo_url && (
+              <img src={config.logo_url} alt={config.name} className="w-12 h-12 rounded-xl object-cover mx-auto mb-2" />
+            )}
+            <h2 className="text-xl font-bold text-white print:text-black">{config.name}</h2>
+            <p className="text-xs text-slate-400 print:text-gray-600 mt-0.5">
+              {config.address} • City: {config.city}
+            </p>
+            <p className="text-xs text-slate-400 print:text-gray-600">
+              Phone: {config.phone}
+            </p>
+
+            <div className="mt-4 inline-block">
+              <span className="text-xs font-bold tracking-widest uppercase px-3 py-1 rounded-lg bg-teal-500/20 text-teal-300 border border-teal-500/30 print:border-black print:text-black print:bg-transparent">
+                FEE RECEIPT
+              </span>
             </div>
 
-            <div className="text-left sm:text-right shrink-0">
-              <span className="inline-block text-[10px] font-bold tracking-widest uppercase px-2.5 py-0.5 rounded bg-teal-500/20 text-teal-300 border border-teal-500/30 print:border-gray-400 print:text-black">
-                Fee Receipt
-              </span>
-              <p className="text-xs font-mono text-slate-400 print:text-gray-600 mt-2">
-                Receipt ID: <span className="text-white print:text-black font-bold">{payment.id}</span>
-              </p>
-              <p className="text-xs text-slate-400 print:text-gray-600 mt-0.5">
-                Date: <span className="font-semibold text-white print:text-black">{formatDate(payment.date)}</span>
-              </p>
+            <div className="flex justify-between items-center text-xs text-slate-400 print:text-gray-600 mt-4 px-1">
+              <span>Receipt No: <strong className="text-white print:text-black font-mono">{payment.id.slice(-8)}</strong></span>
+              <span>Date: <strong className="text-white print:text-black">{formatDate(payment.date)}</strong></span>
             </div>
           </div>
 
           {/* Student Info Box */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 py-5 border-b border-slate-800 print:border-gray-300 text-xs">
-            <div>
-              <span className="text-slate-500 print:text-gray-500 uppercase tracking-wider text-[10px] block">
-                Registration No
-              </span>
-              <span className="font-mono font-bold text-teal-300 print:text-black text-sm">
-                {student.registration_number}
-              </span>
-            </div>
-            <div>
-              <span className="text-slate-500 print:text-gray-500 uppercase tracking-wider text-[10px] block">
-                Student Name
-              </span>
+          <div className="p-4 rounded-xl bg-slate-900 print:bg-gray-50 border border-slate-800 print:border-gray-300 space-y-2 text-xs">
+            <div className="flex justify-between">
+              <span className="text-slate-400 print:text-gray-600">Student Name:</span>
               <span className="font-semibold text-white print:text-black">{student.name}</span>
             </div>
-            <div>
-              <span className="text-slate-500 print:text-gray-500 uppercase tracking-wider text-[10px] block">
-                Course Enrolled
-              </span>
-              <span className="font-semibold text-white print:text-black">{student.course_type}</span>
+            <div className="flex justify-between">
+              <span className="text-slate-400 print:text-gray-600">Reg. No:</span>
+              <span className="font-mono font-bold text-teal-300 print:text-black">{student.registration_number}</span>
             </div>
-            <div>
-              <span className="text-slate-500 print:text-gray-500 uppercase tracking-wider text-[10px] block">
-                Batch
-              </span>
+            <div className="flex justify-between">
+              <span className="text-slate-400 print:text-gray-600">Course:</span>
+              <span className="text-white print:text-black">{student.course_type}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400 print:text-gray-600">Batch:</span>
               <span className="text-white print:text-black">{student.batch_name}</span>
             </div>
           </div>
 
-          {/* Payment Particulars Table */}
-          <div className="py-5 border-b border-slate-800 print:border-gray-300">
-            <table className="w-full text-xs text-left">
-              <thead>
-                <tr className="text-slate-400 print:text-gray-600 border-b border-slate-800 print:border-gray-200">
-                  <th className="pb-2">Description / Payment Type</th>
-                  <th className="pb-2">Payment Mode</th>
-                  <th className="pb-2 text-right">Amount Paid</th>
-                </tr>
-              </thead>
-              <tbody className="text-slate-200 print:text-black">
-                <tr>
-                  <td className="py-3">
-                    <div className="font-semibold text-white print:text-black flex items-center gap-2">
-                      <span>{payment.type}</span>
-                      {payment.payment_for && (
-                        <span className="text-xs font-normal text-teal-400 print:text-gray-700 bg-slate-900 print:bg-transparent px-2 py-0.5 rounded border border-slate-800 print:border-none">
-                          {payment.payment_for}
-                        </span>
-                      )}
-                    </div>
-                    {payment.university_name && (
-                      <div className="text-[11px] text-amber-300 print:text-gray-700 font-medium mt-1">
-                        Affiliated University: {payment.university_name}
-                      </div>
-                    )}
-                    {payment.note && (
-                      <div className="text-[11px] text-slate-500 print:text-gray-500 italic mt-0.5">
-                        Ref: {payment.note}
-                      </div>
-                    )}
-                  </td>
-                  <td className="py-3 font-medium">{payment.mode}</td>
-                  <td className="py-3 text-right font-mono font-bold text-emerald-400 print:text-black text-sm">
-                    {formatCurrency(payment.amount)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          {/* Payment Particulars */}
+          <div className="p-4 rounded-xl bg-slate-900 print:bg-gray-50 border border-slate-800 print:border-gray-300 space-y-2.5 text-xs">
+            <div className="flex justify-between">
+              <span className="text-slate-400 print:text-gray-600">Payment For:</span>
+              <span className="font-semibold text-teal-300 print:text-black">{paymentForDisplay}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400 print:text-gray-600">Amount Paid:</span>
+              <span className="font-mono font-bold text-emerald-400 print:text-black text-sm">
+                {formatCurrency(payment.amount)}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400 print:text-gray-600">Payment Mode:</span>
+              <span className="font-medium text-white print:text-black">{payment.mode}</span>
+            </div>
+            {payment.note && (
+              <div className="flex justify-between pt-1 border-t border-slate-800 print:border-gray-200">
+                <span className="text-slate-400 print:text-gray-600">Reference:</span>
+                <span className="text-slate-300 print:text-gray-700 italic">{payment.note}</span>
+              </div>
+            )}
           </div>
 
           {/* Account Balance Summary */}
-          <div className="py-5 grid grid-cols-3 gap-4 text-xs bg-slate-900/60 print:bg-gray-100 rounded-xl p-4 my-4">
-            <div>
-              <span className="text-slate-400 print:text-gray-600 block text-[11px]">Total Course Fees:</span>
-              <span className="font-mono font-bold text-white print:text-black text-sm">
-                {formatCurrency(student.total_fees)}
-              </span>
+          <div className="p-4 rounded-xl bg-slate-900/60 print:bg-gray-100 border border-slate-800 print:border-gray-300 space-y-2 text-xs">
+            <div className="flex justify-between">
+              <span className="text-slate-400 print:text-gray-600">Total Course Fees:</span>
+              <span className="font-mono font-bold text-white print:text-black">{formatCurrency(student.total_fees)}</span>
             </div>
-            <div>
-              <span className="text-slate-400 print:text-gray-600 block text-[11px]">Total Fees Paid:</span>
-              <span className="font-mono font-bold text-emerald-400 print:text-black text-sm">
-                {formatCurrency(totalPaid)}
-              </span>
+            <div className="flex justify-between">
+              <span className="text-slate-400 print:text-gray-600">Total Paid Till Date:</span>
+              <span className="font-mono font-bold text-emerald-400 print:text-black">{formatCurrency(totalPaid)}</span>
             </div>
-            <div>
-              <span className="text-slate-400 print:text-gray-600 block text-[11px]">Balance Remaining:</span>
-              <span className="font-mono font-bold text-amber-400 print:text-black text-sm">
-                {formatCurrency(student.remaining_fees)}
-              </span>
+            <div className="flex justify-between pt-1 border-t border-slate-800 print:border-gray-200">
+              <span className="text-slate-400 print:text-gray-600">Balance Remaining:</span>
+              <span className="font-mono font-bold text-amber-400 print:text-black">{formatCurrency(balanceRemaining)}</span>
             </div>
           </div>
 
-          {/* Footer & Signatures */}
-          <div className="pt-6 flex justify-between items-end text-xs text-slate-500 print:text-gray-500">
-            <div>
-              <p className="text-[11px] font-medium text-slate-400 print:text-gray-600">
-                • Computer-generated electronic receipt. No physical signature required.
-              </p>
-              <p className="text-[10px] mt-0.5">
-                For questions regarding this receipt, contact {config.email}.
-              </p>
+          {/* Thank You & Signatures */}
+          <div className="text-center pt-3 pb-1">
+            <p className="text-xs font-medium text-teal-400 print:text-black italic">
+              "Thank you for your payment!"
+            </p>
+          </div>
+
+          <div className="pt-8 flex justify-between items-end text-xs text-slate-500 print:text-gray-600">
+            <div className="text-[10px] text-slate-500 print:text-gray-500">
+              Powered by Institute Portal
             </div>
-            <div className="text-right border-t border-slate-700 print:border-gray-400 pt-2 min-w-[140px]">
-              <span className="font-semibold text-slate-300 print:text-black block text-[11px]">
-                Authorized Signatory
+            <div className="text-center min-w-[150px]">
+              <div className="border-b border-slate-700 print:border-black mb-1 pb-4"></div>
+              <span className="font-semibold text-slate-300 print:text-black text-[11px] block">
+                Authorized Signature
               </span>
-              <span className="text-[10px] uppercase tracking-wider">{config.name}</span>
             </div>
           </div>
         </div>

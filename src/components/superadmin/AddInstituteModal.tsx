@@ -1,8 +1,10 @@
 import React, { useState } from "react";
-import { X, Building2, Shield, KeyRound, Check, Sparkles } from "lucide-react";
+import { X, Building2, Shield, KeyRound, Check, Sparkles, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { InstituteConfig, InstituteFeatures } from "../../types";
 import { isValidEmail, isValidRegPrefix } from "../../utils/validators";
 import { useToast } from "../shared/Toast";
+import { useAuth } from "../../contexts/AuthContext";
+import { getPlanFeatures, FEATURE_LABELS, PlanType } from "../../utils/planFeatures";
 import {
   auth,
   db,
@@ -26,6 +28,7 @@ export const AddInstituteModal: React.FC<AddInstituteModalProps> = ({
   onSuccess,
 }) => {
   const { success, error, info } = useToast();
+  const { allInstitutes } = useAuth();
 
   const [name, setName] = useState("");
   const [regPrefix, setRegPrefix] = useState("");
@@ -35,17 +38,11 @@ export const AddInstituteModal: React.FC<AddInstituteModalProps> = ({
   const [city, setCity] = useState("");
   const [address, setAddress] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
-  const [plan, setPlan] = useState<"basic" | "standard" | "pro">("standard");
+  const [plan, setPlan] = useState<PlanType>("standard");
   const [submitting, setSubmitting] = useState(false);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
 
-  const [features, setFeatures] = useState<InstituteFeatures>({
-    finance_module: true,
-    fee_reminders: true,
-    birthday_greetings: true,
-    certificate_verify: true,
-    import_leads: true,
-    backup_restore: true,
-  });
+  const [features, setFeatures] = useState<InstituteFeatures>(getPlanFeatures("standard"));
 
   if (!isOpen) return null;
 
@@ -54,12 +51,54 @@ export const AddInstituteModal: React.FC<AddInstituteModalProps> = ({
     setRegPrefix(val);
   };
 
-  const toggleFeature = (key: keyof InstituteFeatures) => {
-    setFeatures((prev) => ({ ...prev, [key]: !prev[key] }));
+  const handlePlanChange = (newPlan: PlanType) => {
+    setPlan(newPlan);
+    setFeatures(getPlanFeatures(newPlan));
+  };
+
+  const validateEmailPlanLimit = async (
+    email: string,
+    newPlan: string
+  ): Promise<{ allowed: boolean; error?: string }> => {
+    const existingForEmail = allInstitutes.filter(
+      (inst) => inst.admin_email?.toLowerCase().trim() === email.toLowerCase().trim()
+    );
+
+    if (existingForEmail.length === 0) {
+      return { allowed: true };
+    }
+
+    if (newPlan !== "pro") {
+      return {
+        allowed: false,
+        error: `This email (${email}) is already assigned to "${existingForEmail[0].name}". Multiple institutes require Pro plan. Please use a different email or upgrade to Pro plan.`,
+      };
+    }
+
+    const nonProExisting = existingForEmail.filter(
+      (inst) => inst.plan !== "pro"
+    );
+
+    if (nonProExisting.length > 0) {
+      return {
+        allowed: false,
+        error: `This email already has institutes that are NOT on Pro plan: ${nonProExisting.map((i) => i.name).join(", ")}. Upgrade those institutes to Pro first before adding more institutes to this email.`,
+      };
+    }
+
+    if (existingForEmail.length >= 5) {
+      return {
+        allowed: false,
+        error: `This email already has ${existingForEmail.length} institutes (maximum 5 allowed on Pro plan). Cannot add more institutes to this email.`,
+      };
+    }
+
+    return { allowed: true };
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorBanner(null);
 
     if (!name.trim()) {
       error("Institute name is required");
@@ -75,6 +114,12 @@ export const AddInstituteModal: React.FC<AddInstituteModalProps> = ({
     }
     if (password.length < 6) {
       error("Temporary password must be at least 6 characters long");
+      return;
+    }
+
+    const planCheck = await validateEmailPlanLimit(adminEmail, plan);
+    if (!planCheck.allowed) {
+      setErrorBanner(planCheck.error || "Plan limit exceeded");
       return;
     }
 
@@ -275,12 +320,11 @@ export const AddInstituteModal: React.FC<AddInstituteModalProps> = ({
               </label>
               <select
                 value={plan}
-                onChange={(e) => setPlan(e.target.value as any)}
+                onChange={(e) => handlePlanChange(e.target.value as PlanType)}
                 className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none transition"
               >
-                <option value="basic">Basic Plan</option>
-                <option value="standard">Standard Plan</option>
-                <option value="pro">Pro Plan</option>
+                <option value="standard">Standard — ₹499/month</option>
+                <option value="pro">Pro — ₹999/month</option>
               </select>
             </div>
           </div>
@@ -311,47 +355,35 @@ export const AddInstituteModal: React.FC<AddInstituteModalProps> = ({
             />
           </div>
 
-          {/* Feature toggles */}
-          <div className="pt-2">
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2">
-              Enabled Features & Modules
-            </label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 bg-slate-950/80 p-3.5 rounded-2xl border border-slate-800">
-              {[
-                { id: "finance_module", label: "Finance & P&L" },
-                { id: "fee_reminders", label: "Fee Reminders" },
-                { id: "birthday_greetings", label: "Birthday Greetings" },
-                { id: "certificate_verify", label: "Certificate Verify" },
-                { id: "import_leads", label: "Import CSV Leads" },
-                { id: "backup_restore", label: "Backup & Restore" },
-              ].map(({ id, label }) => {
-                const active = features[id as keyof InstituteFeatures];
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => toggleFeature(id as keyof InstituteFeatures)}
-                    className={`flex items-center gap-2 p-2 rounded-xl text-xs font-medium border text-left transition ${
-                      active
-                        ? "bg-teal-500/10 border-teal-500/40 text-teal-300"
-                        : "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    <div
-                      className={`w-4 h-4 rounded-md flex items-center justify-center border ${
-                        active
-                          ? "bg-teal-500 border-teal-400 text-slate-950"
-                          : "border-slate-700 bg-slate-950"
-                      }`}
-                    >
-                      {active && <Check className="w-3 h-3 stroke-[3]" />}
-                    </div>
-                    <span className="truncate">{label}</span>
-                  </button>
-                );
-              })}
+          {/* Features Preview Box */}
+          {plan && (
+            <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-4 mt-3">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
+                Features included in {plan} plan:
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {Object.entries(getPlanFeatures(plan)).map(([key, enabled]) => (
+                  <div key={key} className="flex items-center gap-2">
+                    {enabled ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    ) : (
+                      <XCircle className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                    )}
+                    <span className={`text-xs ${enabled ? "text-slate-200" : "text-slate-500"}`}>
+                      {FEATURE_LABELS[key]}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
+
+          {errorBanner && (
+            <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-4 flex items-start gap-3">
+              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              <p className="text-sm text-rose-300">{errorBanner}</p>
+            </div>
+          )}
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
             <button

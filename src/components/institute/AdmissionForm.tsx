@@ -33,13 +33,15 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
   onClearPrefillLead,
   onNavigateToRegistry,
 }) => {
-  const { config, courses, batches, universities, enrollStudent } = useInstitute();
+  const { config, courses, batches, universities, sessions, enrollStudent } = useInstitute();
   const { success, error, warning } = useToast();
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [address, setAddress] = useState("");
+  const [fatherName, setFatherName] = useState("");
+  const [motherName, setMotherName] = useState("");
   const [dob, setDob] = useState("");
   const [admissionDate, setAdmissionDate] = useState(getTodayDateString());
   const [courseType, setCourseType] = useState("");
@@ -52,6 +54,7 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
   const [affiliatedUniversity, setAffiliatedUniversity] = useState<string>("");
   const [universityTotalFees, setUniversityTotalFees] = useState<number | "">("");
   const [universityAdmissionFees, setUniversityAdmissionFees] = useState<number | "">("");
+  const [session, setSession] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   // Success state for after submission
@@ -100,6 +103,7 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
       setAffiliatedUniversity("");
       setUniversityTotalFees("");
       setUniversityAdmissionFees("");
+      setSession("");
     }
   };
 
@@ -108,12 +112,15 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
     setPhone("");
     setEmail("");
     setAddress("");
+    setFatherName("");
+    setMotherName("");
     setDob("");
     setAdmissionDate(getTodayDateString());
     setPaymentNote("");
     setAffiliatedUniversity("");
     setUniversityTotalFees("");
     setUniversityAdmissionFees("");
+    setSession("");
     if (activeCourses.length > 0) {
       handleCourseChange(activeCourses[0].name);
     }
@@ -150,6 +157,14 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
       return;
     }
 
+    const selectedCourseObj = activeCourses.find((c) => c.name === courseType);
+    const isUniversityCourse = Boolean(selectedCourseObj?.is_university_course);
+
+    if (isUniversityCourse && !session) {
+      error("Please select a session for university course.");
+      return;
+    }
+
     const tFees = Number(totalFees);
     const aFees = Number(admissionFees);
 
@@ -172,13 +187,20 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
     const uTotal = hasUniversity ? Number(universityTotalFees) || 0 : 0;
     const uPaid = hasUniversity ? Number(universityAdmissionFees) || 0 : 0;
 
-    if (hasUniversity && uPaid > aFees) {
-      error("University fee paid now cannot exceed total admission fees paid.");
+    if (hasUniversity && uTotal > tFees) {
+      error("University fees cannot exceed total course fees.");
       return;
     }
 
     if (hasUniversity && uPaid > uTotal) {
-      error("University fee paid now cannot exceed total university fees.");
+      error("University payment cannot exceed university total fees.");
+      return;
+    }
+
+    const institutePortion = tFees - uTotal;
+
+    if (hasUniversity && (aFees - uPaid) > institutePortion) {
+      error("Institute payment exceeds institute portion. Please check amounts.");
       return;
     }
 
@@ -189,6 +211,7 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
     console.log("DEBUG university_fee_paid_now:", hasUniversity ? uPaid : 0);
     console.log("DEBUG total_fees:", tFees);
     console.log("DEBUG university_total_fees:", hasUniversity ? uTotal : 0);
+    console.log("DEBUG institute_portion:", institutePortion);
     console.log(
       "DEBUG payments being created:",
       "institute:",
@@ -217,6 +240,10 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
       affiliated_university: hasUniversity ? affiliatedUniversity.trim() : undefined,
       university_total_fees: hasUniversity ? uTotal : 0,
       university_admission_fees: hasUniversity ? uPaid : 0,
+      institute_portion: institutePortion,
+      father_name: fatherName,
+      mother_name: motherName,
+      session: isUniversityCourse ? session : undefined,
     });
 
     setSubmitting(false);
@@ -435,6 +462,32 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
               />
             </div>
 
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                Father's Name (Optional)
+              </label>
+              <input
+                type="text"
+                value={fatherName}
+                onChange={(e) => setFatherName(e.target.value)}
+                placeholder="e.g. Ramesh Sharma"
+                className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none transition"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                Mother's Name (Optional)
+              </label>
+              <input
+                type="text"
+                value={motherName}
+                onChange={(e) => setMotherName(e.target.value)}
+                placeholder="e.g. Sunita Sharma"
+                className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none transition"
+              />
+            </div>
+
             <div className="sm:col-span-2">
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
                 Residential Address (Optional)
@@ -500,6 +553,34 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
                 )}
               </select>
             </div>
+
+            {selectedCourseObj?.is_university_course && (
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                  Session *
+                </label>
+                <select
+                  value={session}
+                  onChange={(e) => setSession(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none transition"
+                  required
+                >
+                  <option value="">-- Select Session --</option>
+                  {sessions
+                    .filter((s) => s.active)
+                    .map((s) => (
+                      <option key={s.id} value={s.name}>
+                        {s.name}
+                      </option>
+                    ))}
+                </select>
+                {sessions.length === 0 && (
+                  <p className="text-xs text-amber-400 mt-1">
+                    ⚠️ No sessions added yet. Go to Settings → Sessions to add.
+                  </p>
+                )}
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
@@ -601,6 +682,15 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
                     />
                   </div>
                 </>
+              )}
+
+              {affiliatedUniversity && (
+                <div className="sm:col-span-3 mt-1 p-3 rounded-xl bg-slate-950 border border-slate-800 flex justify-between items-center text-xs">
+                  <span className="text-slate-400 font-medium">Institute Fee (Auto):</span>
+                  <span className="font-mono font-bold text-teal-300 text-sm">
+                    {formatCurrency(Math.max(0, Number(totalFees || 0) - Number(universityTotalFees || 0)))}
+                  </span>
+                </div>
               )}
             </div>
           </div>

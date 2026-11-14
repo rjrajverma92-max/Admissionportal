@@ -3,6 +3,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { SuperAdminDashboard } from "./SuperAdminDashboard";
 import { InstituteList } from "./InstituteList";
 import { SuperAdminDebugTools } from "./SuperAdminDebugTools";
+import { ReleaseNotesManager } from "./ReleaseNotesManager";
 import { AddInstituteModal } from "./AddInstituteModal";
 import { EditInstituteModal } from "./EditInstituteModal";
 import { InstituteConfig } from "../../types";
@@ -21,12 +22,13 @@ import {
   X,
   ExternalLink,
   Bug,
+  Bell,
 } from "lucide-react";
 
 export const SuperAdminLayout: React.FC = () => {
   const { user, logout, allInstitutes, refreshInstitutes } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<"dashboard" | "institutes" | "debug">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "institutes" | "debug" | "releases">("dashboard");
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<InstituteConfig | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -127,6 +129,17 @@ service cloud.firestore {
               <Bug className="w-3.5 h-3.5" />
               <span>Debug Tools</span>
             </button>
+            <button
+              onClick={() => setActiveTab("releases")}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
+                activeTab === "releases"
+                  ? "bg-teal-500 text-slate-950 shadow-md shadow-teal-500/20"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <Bell className="w-3.5 h-3.5" />
+              <span>🔔 Release Notes</span>
+            </button>
           </nav>
 
           {/* Action buttons */}
@@ -183,8 +196,10 @@ service cloud.firestore {
             onOpenEditModal={(inst) => setEditTarget(inst)}
             onRefresh={refreshInstitutes}
           />
-        ) : (
+        ) : activeTab === "debug" ? (
           <SuperAdminDebugTools institutes={allInstitutes} />
+        ) : (
+          <ReleaseNotesManager />
         )}
       </main>
 

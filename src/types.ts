@@ -47,6 +47,10 @@ export interface Student {
   last_notified_date?: string;
   affiliated_university?: string;
   university_total_fees?: number;
+  institute_portion?: number;
+  father_name?: string;
+  mother_name?: string;
+  session?: string;
 }
 
 export interface Payment {
@@ -95,13 +99,25 @@ export interface BatchOption {
   created_timestamp?: any;
 }
 
+export interface SessionOption {
+  id: string;
+  name: string;
+  year_key: string;
+  month: string;
+  active: boolean;
+  created_timestamp?: any;
+}
+
 export interface InstituteFeatures {
   finance_module: boolean;
   fee_reminders: boolean;
   birthday_greetings: boolean;
   certificate_verify: boolean;
   import_leads: boolean;
+  university_fees: boolean;
   backup_restore: boolean;
+  email_notifications: boolean;
+  multi_institute: boolean;
 }
 
 export interface InstituteConfig {
@@ -116,7 +132,7 @@ export interface InstituteConfig {
   admin_email: string;
   admin_password?: string;
   status: "active" | "suspended" | "trial";
-  plan: "basic" | "standard" | "pro";
+  plan: "standard" | "pro";
   created_date: string;
   emailjs_service_id?: string;
   emailjs_template_admission?: string;
@@ -144,4 +160,16 @@ export interface ToastMessage {
   type: ToastType;
   message: string;
   title?: string;
+}
+
+export interface ReleaseNote {
+  id: string;
+  version: string;
+  title: string;
+  description: string;
+  how_to_use: string;
+  benefit: string;
+  created_at: any;
+  created_by: string;
+  is_active: boolean;
 }

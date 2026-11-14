@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useState, useMemo } from "react";
 import {
   db,
   isFirebaseConfigured,
@@ -23,6 +23,7 @@ import {
   CourseOption,
   BatchOption,
   UniversityOption,
+  SessionOption,
   Lead,
   StudentStatus,
   PaymentMode,
@@ -51,8 +52,11 @@ interface InstituteContextType {
   courses: CourseOption[];
   batches: BatchOption[];
   universities: UniversityOption[];
+  sessions: SessionOption[];
   leads: Lead[];
   loadingData: boolean;
+  getStudentRemainingFees: (studentId: string, totalFees: number) => number;
+  studentsWithBalance: (Student & { computed_remaining: number })[];
   enrollStudent: (data: {
     name: string;
     phone: string;
@@ -71,6 +75,10 @@ interface InstituteContextType {
     affiliated_university?: string;
     university_total_fees?: number;
     university_admission_fees?: number;
+    institute_portion?: number;
+    father_name?: string;
+    mother_name?: string;
+    session?: string;
   }) => Promise<{ success: boolean; student?: Student; initialPayment?: Payment; error?: string }>;
   updateStudent: (studentId: string, partial: Partial<Student>) => Promise<void>;
   updateStudentStatus: (
@@ -115,6 +123,10 @@ interface InstituteContextType {
   updateUniversity: (universityId: string, partial: Partial<UniversityOption>) => Promise<void>;
   deleteUniversity: (universityId: string) => Promise<{ success: boolean; error?: string }>;
   seedDefaultUniversitiesIfEmpty: () => Promise<void>;
+  addSession: (name: string, yearKey: string, month: string) => Promise<void>;
+  updateSession: (sessionId: string, partial: Partial<SessionOption>) => Promise<void>;
+  deleteSession: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
+  seedDefaultSessionsIfEmpty: () => Promise<void>;
   updateConfig: (partial: Partial<InstituteConfig>) => Promise<void>;
   addLeads: (newLeads: Omit<Lead, "id" | "created_at">[]) => void;
   deleteLead: (leadId: string) => void;
@@ -135,6 +147,7 @@ export const InstituteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [courses, setCourses] = useState<CourseOption[]>([]);
   const [batches, setBatches] = useState<BatchOption[]>([]);
   const [universities, setUniversities] = useState<UniversityOption[]>([]);
+  const [sessions, setSessions] = useState<SessionOption[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loadingData, setLoadingData] = useState<boolean>(true);
 
@@ -196,6 +209,7 @@ export const InstituteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         snap.forEach((d) => list.push({ ...d.data(), id: d.id } as Student));
         setStudents(list.filter((s) => !s.is_deleted));
         setLoadingData(false);
+        syncAllStudentRemainingFees(activeInstituteId);
       },
       (err) => {
         console.warn("Students stream notice:", err.message);
@@ -263,6 +277,18 @@ export const InstituteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
     );
 
+    const unsubSessions = onSnapshot(
+      collection(db, "institutes", activeInstituteId, "sessions"),
+      (snap) => {
+        const list: SessionOption[] = [];
+        snap.forEach((d) => list.push({ ...d.data(), id: d.id } as SessionOption));
+        setSessions(list);
+      },
+      (err) => {
+        console.warn("Sessions stream notice:", err.message);
+      }
+    );
+
     return () => {
       unsubConfig();
       unsubStudents();
@@ -271,6 +297,7 @@ export const InstituteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       unsubCourses();
       unsubBatches();
       unsubUniversities();
+      unsubSessions();
     };
   }, [activeInstituteId]);
 
@@ -296,7 +323,98 @@ export const InstituteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   };
 
+  const getStudentRemainingFees = (studentId: string, totalFees: number): number => {
+    const paid = payments
+      .filter((p) => p.student_id === studentId)
+      .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+    return Math.max(0, totalFees - paid);
+  };
+
+  const studentsWithBalance = useMemo(() => {
+    return students
+      .filter((s) => s.status === "Active")
+      .map((s) => ({
+        ...s,
+        computed_remaining: getStudentRemainingFees(s.id, Number(s.total_fees || 0)),
+      }))
+      .filter((s) => s.computed_remaining > 0);
+  }, [students, payments]);
+
+  const syncAllStudentRemainingFees = async (instituteId: string) => {
+    if (!db) return;
+    try {
+      const studentsSnap = await getDocs(
+        collection(db, "institutes", instituteId, "students")
+      );
+      const paymentsSnap = await getDocs(
+        collection(db, "institutes", instituteId, "payments")
+      );
+      const allPayments = paymentsSnap.docs.map((d) => {
+        const data = d.data() as Payment;
+        return { ...data, id: d.id };
+      });
+
+      for (const studentDoc of studentsSnap.docs) {
+        const student = studentDoc.data() as Student;
+        const studentPayments = allPayments.filter((p) => p.student_id === studentDoc.id);
+
+        const universityPaid = studentPayments
+          .filter((p) => p.university_name && p.university_name !== "")
+          .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+        const institutePaid = studentPayments
+          .filter((p) => !p.university_name || p.university_name === "")
+          .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+        const totalCollected = institutePaid + universityPaid;
+        const remaining = Math.max(0, Number(student.total_fees || 0) - totalCollected);
+
+        if (student.remaining_fees !== remaining || student.admission_fees !== institutePaid) {
+          await updateDoc(studentDoc.ref, {
+            remaining_fees: remaining,
+            admission_fees: institutePaid,
+          });
+        }
+      }
+    } catch (err) {
+      console.warn("syncAllStudentRemainingFees error:", err);
+    }
+  };
+
   // Enroll Student
+  const recalculateAndUpdateStudentFees = async (studentId: string, totalFees: number) => {
+    if (!activeInstituteId || !db) return;
+    try {
+      const allPaymentsSnap = await getDocs(
+        collection(db, "institutes", activeInstituteId, "payments")
+      );
+      const thisStudentPayments = allPaymentsSnap.docs
+        .map(d => d.data() as Payment)
+        .filter(p => p.student_id === studentId);
+
+      const universityPaid = thisStudentPayments
+        .filter(p => p.university_name && p.university_name !== "")
+        .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+      const institutePaid = thisStudentPayments
+        .filter(p => !p.university_name || p.university_name === "")
+        .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+      const totalCollected = institutePaid + universityPaid;
+      const remainingFees = Number(totalFees) - totalCollected;
+
+      await updateDoc(
+        doc(db, "institutes", activeInstituteId, "students", studentId),
+        {
+          remaining_fees: remainingFees < 0 ? 0 : remainingFees,
+          admission_fees: institutePaid,
+        }
+      );
+    } catch (err) {
+      console.warn("recalculateAndUpdateStudentFees error:", err);
+    }
+  };
+
   const enrollStudent = async (data: {
     name: string;
     phone: string;
@@ -315,6 +433,9 @@ export const InstituteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     affiliated_university?: string;
     university_total_fees?: number;
     university_admission_fees?: number;
+    father_name?: string;
+    mother_name?: string;
+    session?: string;
   }): Promise<{ success: boolean; student?: Student; initialPayment?: Payment; error?: string }> => {
     if (!activeInstituteId || !config) {
       return { success: false, error: "Institute not active" };
@@ -331,11 +452,14 @@ export const InstituteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       );
 
       const studentId = `std_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const tFees = Number(data.total_fees || 0);
       const totalAdmissionPaid = Number(data.admission_fees || 0);
       const hasUniv = Boolean(data.affiliated_university && data.affiliated_university.trim());
+      const uTotal = hasUniv ? Number(data.university_total_fees || 0) : 0;
       const univPaidNow = hasUniv ? Number(data.university_admission_fees || 0) : 0;
+      const institutePortion = tFees - uTotal;
       const instituteAmountReceived = Math.max(0, totalAdmissionPaid - univPaidNow);
-      const remaining = Math.max(0, Number(data.total_fees) - totalAdmissionPaid);
+      const remaining = Math.max(0, tFees - totalAdmissionPaid);
 
       const newStudent: Student = {
         id: studentId,
@@ -350,11 +474,15 @@ export const InstituteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         course_type: data.course_type,
         batch_name: data.batch_name,
         batch_start_date: data.batch_start_date,
-        total_fees: Number(data.total_fees),
+        total_fees: tFees,
         admission_fees: instituteAmountReceived,
         remaining_fees: remaining,
-        affiliated_university: (data.affiliated_university || "").trim(),
-        university_total_fees: data.university_total_fees ? Number(data.university_total_fees) : 0,
+        affiliated_university: hasUniv ? data.affiliated_university!.trim() : "",
+        university_total_fees: uTotal,
+        institute_portion: institutePortion,
+        father_name: (data.father_name || "").trim(),
+        mother_name: (data.mother_name || "").trim(),
+        session: (data.session || "").trim(),
         status: "Active",
         certificate_status: "Not Issued",
         created_timestamp: serverTimestamp(),
@@ -423,6 +551,8 @@ export const InstituteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (data.linked_lead_id) {
         deleteLead(data.linked_lead_id);
       }
+
+      await recalculateAndUpdateStudentFees(studentId, tFees);
 
       return { success: true, student: newStudent, initialPayment: primaryReceiptPayment || undefined };
     } catch (err: any) {
@@ -551,6 +681,8 @@ export const InstituteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         (e) => console.warn("Async email failed:", e)
       );
 
+      await recalculateAndUpdateStudentFees(data.student_id, student.total_fees);
+
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message || "Failed to record payment" };
@@ -678,6 +810,71 @@ export const InstituteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
     await deleteDoc(doc(db, "institutes", activeInstituteId, "universities", universityId));
     return { success: true };
+  };
+
+  const addSession = async (name: string, yearKey: string, month: string) => {
+    if (!activeInstituteId || !isFirebaseConfigured || !db) return;
+    const sessionId = `ses_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const session: SessionOption = {
+      id: sessionId,
+      name: name.trim(),
+      year_key: yearKey.trim(),
+      month: month.trim(),
+      active: true,
+      created_timestamp: serverTimestamp(),
+    };
+    await setDoc(doc(db, "institutes", activeInstituteId, "sessions", sessionId), cleanFirestoreData(session));
+  };
+
+  const updateSession = async (sessionId: string, partial: Partial<SessionOption>) => {
+    if (!activeInstituteId || !isFirebaseConfigured || !db) return;
+    await updateDoc(doc(db, "institutes", activeInstituteId, "sessions", sessionId), cleanFirestoreData(partial));
+  };
+
+  const deleteSession = async (sessionId: string): Promise<{ success: boolean; error?: string }> => {
+    if (!activeInstituteId || !isFirebaseConfigured || !db) {
+      return { success: false, error: "Database not connected" };
+    }
+    const session = sessions.find((s) => s.id === sessionId);
+    if (!session) return { success: false, error: "Session not found" };
+
+    const isUsed = students.some((s) => s.session === session.name);
+    if (isUsed) {
+      return {
+        success: false,
+        error: `Cannot delete session "${session.name}" because active students are enrolled in it.`,
+      };
+    }
+
+    await deleteDoc(doc(db, "institutes", activeInstituteId, "sessions", sessionId));
+    return { success: true };
+  };
+
+  const seedDefaultSessionsIfEmpty = async () => {
+    if (!activeInstituteId || !isFirebaseConfigured || !db) return;
+    try {
+      const snap = await getDocs(collection(db, "institutes", activeInstituteId, "sessions"));
+      if (snap.empty) {
+        const defaults = [
+          { name: "January 2026-27", year_key: "2026-27", month: "January" },
+          { name: "July 2026-27", year_key: "2026-27", month: "July" },
+        ];
+        for (const def of defaults) {
+          const sessionId = `ses_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+          const sessionDoc: SessionOption = {
+            id: sessionId,
+            name: def.name,
+            year_key: def.year_key,
+            month: def.month,
+            active: true,
+            created_timestamp: serverTimestamp(),
+          };
+          await setDoc(doc(db, "institutes", activeInstituteId, "sessions", sessionId), cleanFirestoreData(sessionDoc));
+        }
+      }
+    } catch (err) {
+      console.warn("seedDefaultSessionsIfEmpty error:", err);
+    }
   };
 
   const updateConfig = async (partial: Partial<InstituteConfig>) => {
@@ -811,8 +1008,11 @@ export const InstituteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         courses,
         batches,
         universities,
+        sessions,
         leads,
         loadingData,
+        getStudentRemainingFees,
+        studentsWithBalance,
         enrollStudent,
         updateStudent,
         updateStudentStatus,
@@ -832,6 +1032,10 @@ export const InstituteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         updateUniversity,
         deleteUniversity,
         seedDefaultUniversitiesIfEmpty,
+        addSession,
+        updateSession,
+        deleteSession,
+        seedDefaultSessionsIfEmpty,
         updateConfig,
         addLeads,
         deleteLead,

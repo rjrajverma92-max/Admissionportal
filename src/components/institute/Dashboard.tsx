@@ -29,11 +29,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     const dropouts = students.filter((s) => s.status === "Dropped");
     const certificatesIssued = students.filter((s) => s.certificate_status === "Issued");
 
-    // Total Revenue
+    // Total Course Fees across Active & Completed students
+    const totalCourseFees = students
+      .filter((s) => s.status === "Active" || s.status === "Completed")
+      .reduce((sum, s) => sum + Number(s.total_fees || 0), 0);
+
+    // Total Collected from payments collection directly
     const totalRevenue = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
 
-    // Pending Fees across active students
-    const pendingFees = activeStudents.reduce((sum, s) => sum + Number(s.remaining_fees || 0), 0);
+    // Total Pending Fees
+    const totalPending = totalCourseFees - totalRevenue;
+    const pendingFees = totalPending > 0 ? totalPending : 0;
+
+    // Recovery Percent
+    const recoveryPercent = totalCourseFees > 0
+      ? Math.round((totalRevenue / totalCourseFees) * 100)
+      : 0;
 
     // New admissions this month
     const now = new Date();
@@ -86,6 +97,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       certsCount: certificatesIssued.length,
       totalRevenue,
       pendingFees,
+      recoveryPercent,
       newAdmissionsMonth,
       monthlyAdmissions,
       courseCounts,
@@ -96,8 +108,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   }, [students, payments]);
 
   const maxMonthCount = Math.max(1, ...metrics.monthlyAdmissions.map((m) => m.count));
-  const totalBilled = metrics.totalRevenue + metrics.pendingFees;
-  const collectionRate = totalBilled > 0 ? Math.round((metrics.totalRevenue / totalBilled) * 100) : 100;
+  const collectionRate = metrics.recoveryPercent;
 
   return (
     <div className="space-y-8 animate-in fade-in duration-200">

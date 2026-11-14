@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useInstitute } from "../../contexts/InstituteContext";
+import { db } from "../../firebase";
+import { collection, getDocs, setDoc, doc, serverTimestamp } from "firebase/firestore";
 import { Dashboard } from "./Dashboard";
 import { AdmissionForm } from "./AdmissionForm";
 import { ImportLeads } from "./ImportLeads";
@@ -11,7 +13,7 @@ import { FeeReminders } from "./FeeReminders";
 import { Birthdays } from "./Birthdays";
 import { Settings } from "./Settings";
 import { PublicVerify } from "./PublicVerify";
-import { Lead } from "../../types";
+import { Lead, ReleaseNote } from "../../types";
 import {
   LayoutDashboard,
   UserPlus,
@@ -30,10 +32,12 @@ import {
   Building2,
   ArrowLeft,
   CheckCircle2,
+  Crown,
+  Sparkles,
 } from "lucide-react";
 
 export const InstituteLayout: React.FC = () => {
-  const { user, logout, isImpersonating, stopImpersonation } = useAuth();
+  const { user, logout, isImpersonating, stopImpersonation, switchInstitute, myInstitutes, planUpgradeNotice, setPlanUpgradeNotice } = useAuth();
   const { config } = useInstitute();
 
   const [activeTab, setActiveTab] = useState<string>("dashboard");
@@ -44,6 +48,65 @@ export const InstituteLayout: React.FC = () => {
     return sessionStorage.getItem("theme_mode") === "light";
   });
 
+  const [releaseNotes, setReleaseNotes] = useState<ReleaseNote[]>([]);
+  const [unreadNotes, setUnreadNotes] = useState<ReleaseNote[]>([]);
+  const [showWhatsNew, setShowWhatsNew] = useState(false);
+
+  useEffect(() => {
+    const fetchReleaseNotes = async () => {
+      if (!config?.institute_id || !db) return;
+      try {
+        const notesSnap = await getDocs(collection(db, "release_notes"));
+        const activeNotes: ReleaseNote[] = [];
+        notesSnap.forEach((d) => {
+          const data = d.data();
+          if (data.is_active !== false) {
+            activeNotes.push({ id: d.id, ...data } as ReleaseNote);
+          }
+        });
+
+        const readSnap = await getDocs(collection(db, `institutes/${config.institute_id}/read_notifications`));
+        const readNoteIds: string[] = [];
+        readSnap.forEach((d) => {
+          readNoteIds.push(d.data().note_id || d.id);
+        });
+
+        const unread = activeNotes.filter((note) => !readNoteIds.includes(note.id));
+        setReleaseNotes(activeNotes);
+        setUnreadNotes(unread);
+
+        if (unread.length > 0) {
+          setShowWhatsNew(true);
+        }
+      } catch (err) {
+        setReleaseNotes([]);
+        setUnreadNotes([]);
+      }
+    };
+
+    fetchReleaseNotes();
+  }, [config?.institute_id]);
+
+  const markAllAsRead = async () => {
+    if (!config?.institute_id || !db) return;
+    try {
+      for (const note of unreadNotes) {
+        await setDoc(
+          doc(db, `institutes/${config.institute_id}/read_notifications/${note.id}`),
+          {
+            note_id: note.id,
+            institute_id: config.institute_id,
+            read_at: serverTimestamp(),
+          }
+        );
+      }
+      setUnreadNotes([]);
+      setShowWhatsNew(false);
+    } catch (err) {
+      console.error("Error marking notes as read:", err);
+    }
+  };
+
   const toggleLightMode = () => {
     const next = !isLightMode;
     setIsLightMode(next);
@@ -51,12 +114,15 @@ export const InstituteLayout: React.FC = () => {
   };
 
   const features = config?.features || {
-    finance_module: true,
+    finance_module: false,
     fee_reminders: true,
     birthday_greetings: true,
     certificate_verify: true,
-    import_leads: true,
-    backup_restore: true,
+    import_leads: false,
+    university_fees: false,
+    backup_restore: false,
+    email_notifications: false,
+    multi_institute: false,
   };
 
   const navItems = [
@@ -68,7 +134,7 @@ export const InstituteLayout: React.FC = () => {
     { id: "reminders", label: "Reminders", icon: Bell, shown: Boolean(features.fee_reminders) },
     { id: "birthdays", label: "Birthdays", icon: Cake, shown: Boolean(features.birthday_greetings) },
     { id: "settings", label: "Settings", icon: SettingsIcon, shown: true },
-    { id: "verify", label: "Verify", icon: ShieldCheck, shown: true },
+    { id: "verify", label: "Verify", icon: ShieldCheck, shown: Boolean(features.certificate_verify) },
   ].filter((item) => item.shown);
 
   const handleNavigate = (tab: string, studentId?: string) => {
@@ -108,6 +174,24 @@ export const InstituteLayout: React.FC = () => {
             className="px-3 py-1 bg-slate-950 text-white rounded-lg text-xs hover:bg-slate-800 transition flex items-center gap-1"
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Return to Super Admin Panel
+          </button>
+        </div>
+      )}
+
+      {/* Plan Upgrade Notice Banner */}
+      {planUpgradeNotice.show && (
+        <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-2.5 flex items-center justify-between gap-4 z-50">
+          <div className="flex items-center gap-2">
+            <Crown className="w-4 h-4 text-amber-400 shrink-0" />
+            <p className="text-xs text-amber-300">
+              {planUpgradeNotice.message}
+            </p>
+          </div>
+          <button
+            onClick={() => setPlanUpgradeNotice((p) => ({ ...p, show: false }))}
+            className="text-amber-400 hover:text-white text-xs shrink-0 underline"
+          >
+            Dismiss
           </button>
         </div>
       )}
@@ -175,8 +259,36 @@ export const InstituteLayout: React.FC = () => {
             })}
           </nav>
 
-          {/* Right actions: Light toggle & Logout */}
+          {/* Right actions: Switch Institute, Light toggle & Logout */}
           <div className="flex items-center gap-2">
+            {myInstitutes.length > 1 && (
+              <button
+                onClick={switchInstitute}
+                title="Switch Institute"
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition ${
+                  isLightMode
+                    ? "bg-teal-50 border-teal-200 text-teal-700 hover:bg-teal-100"
+                    : "bg-teal-500/10 border-teal-500/30 text-teal-300 hover:bg-teal-500/20"
+                }`}
+              >
+                <Building2 className="w-4 h-4" />
+                <span className="hidden sm:inline">Switch Institute</span>
+              </button>
+            )}
+
+            <button
+              onClick={() => setShowWhatsNew(true)}
+              className="relative p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+              title="What's New / Release Notes"
+            >
+              <Bell className="w-4 h-4" />
+              {unreadNotes.length > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-teal-500 text-slate-950 text-[10px] font-bold rounded-full flex items-center justify-center">
+                  {unreadNotes.length}
+                </span>
+              )}
+            </button>
+
             <button
               onClick={toggleLightMode}
               title={isLightMode ? "Switch to Dark Mode" : "Switch to Light Mode"}
@@ -287,6 +399,66 @@ export const InstituteLayout: React.FC = () => {
           </div>
         )}
       </main>
+
+      {/* What's New Modal */}
+      {showWhatsNew && unreadNotes.length > 0 && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg max-h-[80vh] overflow-y-auto text-slate-100 shadow-2xl">
+            {/* Header */}
+            <div className="p-5 border-b border-slate-800 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/30 flex items-center justify-center text-teal-400">
+                <Sparkles className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-white font-bold">What's New</h2>
+                <p className="text-xs text-slate-400">
+                  {unreadNotes.length} new update(s) since your last login
+                </p>
+              </div>
+            </div>
+
+            {/* Notes List */}
+            <div className="p-5 space-y-5">
+              {unreadNotes.map((note) => (
+                <div key={note.id} className="border border-slate-800 rounded-xl p-4 space-y-3 bg-slate-950/40">
+                  {/* Version + Title */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono bg-teal-500/10 text-teal-400 border border-teal-500/30 px-2 py-0.5 rounded-full">
+                      {note.version}
+                    </span>
+                    <h3 className="text-white font-semibold text-sm">{note.title}</h3>
+                  </div>
+
+                  {/* Description */}
+                  <p className="text-slate-300 text-sm leading-relaxed">{note.description}</p>
+
+                  {/* Benefit */}
+                  <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-3">
+                    <p className="text-xs font-semibold text-emerald-400 mb-1">✅ Benefit</p>
+                    <p className="text-xs text-slate-300">{note.benefit}</p>
+                  </div>
+
+                  {/* How to Use */}
+                  <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-3">
+                    <p className="text-xs font-semibold text-blue-400 mb-1">📖 How to Use</p>
+                    <p className="text-xs text-slate-300 whitespace-pre-line">{note.how_to_use}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Footer */}
+            <div className="p-5 border-t border-slate-800">
+              <button
+                onClick={markAllAsRead}
+                className="w-full py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-semibold text-sm transition shadow-lg shadow-teal-500/20"
+              >
+                Got it! Continue to Portal →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

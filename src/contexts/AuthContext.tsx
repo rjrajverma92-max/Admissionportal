@@ -34,12 +34,19 @@ interface AuthContextType {
   isImpersonating: boolean;
   impersonatedInstitute: InstituteConfig | null;
   allInstitutes: InstituteConfig[];
+  myInstitutes: InstituteConfig[];
+  selectedInstituteId: string | null;
+  needsInstituteSelection: boolean;
+  planUpgradeNotice: { show: boolean; blockedCount: number; message: string };
+  setPlanUpgradeNotice: React.Dispatch<React.SetStateAction<{ show: boolean; blockedCount: number; message: string }>>;
   login: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
   loginWithGoogle: () => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   sendResetEmail: (email: string) => Promise<{ success: boolean; error?: string }>;
   startImpersonation: (instituteId: string) => void;
   stopImpersonation: () => void;
+  selectInstitute: (instituteId: string) => void;
+  switchInstitute: () => void;
   refreshInstitutes: () => Promise<void>;
 }
 
@@ -49,6 +56,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [allInstitutes, setAllInstitutes] = useState<InstituteConfig[]>([]);
+  const [myInstitutes, setMyInstitutes] = useState<InstituteConfig[]>([]);
+  const [selectedInstituteId, setSelectedInstituteId] = useState<string | null>(null);
+  const [needsInstituteSelection, setNeedsInstituteSelection] = useState<boolean>(false);
+  const [planUpgradeNotice, setPlanUpgradeNotice] = useState<{
+    show: boolean;
+    blockedCount: number;
+    message: string;
+  }>({ show: false, blockedCount: 0, message: "" });
   const [instituteId, setInstituteId] = useState<string | null>(null);
   const [instituteConfig, setInstituteConfig] = useState<InstituteConfig | null>(null);
   const [isSuspended, setIsSuspended] = useState<boolean>(false);
@@ -87,6 +102,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setInstituteId(null);
         setInstituteConfig(null);
         setIsSuspended(false);
+        setMyInstitutes([]);
+        setSelectedInstituteId(null);
+        setNeedsInstituteSelection(false);
         return;
       }
 
@@ -98,20 +116,74 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setInstituteId(null);
         setInstituteConfig(null);
         setIsSuspended(false);
+        setMyInstitutes([]);
+        setSelectedInstituteId(null);
+        setNeedsInstituteSelection(false);
         return;
       }
 
-      const matched = list.find(
+      const matched = list.filter(
         (inst) => inst.admin_email?.toLowerCase().trim() === lowerEmail
       );
 
-      if (matched) {
-        setInstituteId(matched.institute_id);
-        setInstituteConfig(matched);
-        setIsSuspended(matched.status === "suspended");
+      // Check plan limits:
+      if (matched.length > 1) {
+        // Multiple institutes found
+        // Check if ALL are on Pro plan
+        const allPro = matched.every(
+          (inst) => inst.plan === "pro"
+        );
+        
+        if (!allPro) {
+          // Find non-pro institutes
+          const nonProInstitutes = matched.filter(
+            (inst) => inst.plan !== "pro"
+          );
+          
+          // Only allow the first institute
+          // Show upgrade notice for rest
+          const firstInst = matched[0];
+          setMyInstitutes([firstInst]);
+          setInstituteId(firstInst.institute_id);
+          setInstituteConfig(firstInst);
+          setIsSuspended(
+            firstInst.status === "suspended"
+          );
+          setNeedsInstituteSelection(false);
+          
+          // Store upgrade notice
+          setPlanUpgradeNotice({
+            show: true,
+            blockedCount: matched.length - 1,
+            message: `You have ${matched.length} institutes registered but ${nonProInstitutes.length} institute(s) are not on Pro plan. Upgrade to Pro to access all institutes.`
+          });
+          return;
+        }
+        
+        // All Pro — show selector normally
+        if (matched.length <= 5) {
+          setMyInstitutes(matched);
+          setNeedsInstituteSelection(true);
+        } else {
+          // More than 5 — take first 5 only
+          setMyInstitutes(matched.slice(0, 5));
+          setNeedsInstituteSelection(true);
+        }
+        
+      } else if (matched.length === 1) {
+        // Single institute — no plan check needed
+        const inst = matched[0];
+        setMyInstitutes([inst]);
+        setInstituteId(inst.institute_id);
+        setInstituteConfig(inst);
+        setIsSuspended(inst.status === "suspended");
+        setNeedsInstituteSelection(false);
       } else {
+        setMyInstitutes([]);
+        setSelectedInstituteId(null);
         setInstituteId(null);
         setInstituteConfig(null);
+        setNeedsInstituteSelection(false);
         setIsSuspended(false);
       }
     },
@@ -226,6 +298,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setInstituteConfig(null);
     setIsSuspended(false);
     setImpersonatedInstituteId(null);
+    setMyInstitutes([]);
+    setSelectedInstituteId(null);
+    setNeedsInstituteSelection(false);
+    setPlanUpgradeNotice({ show: false, blockedCount: 0, message: "" });
+  };
+
+  const selectInstitute = (instId: string) => {
+    const found = myInstitutes.find((i) => i.institute_id === instId);
+    if (found) {
+      setSelectedInstituteId(found.institute_id);
+      setInstituteId(found.institute_id);
+      setInstituteConfig(found);
+      setNeedsInstituteSelection(false);
+      setIsSuspended(found.status === "suspended");
+    }
+  };
+
+  const switchInstitute = () => {
+    if (myInstitutes.length > 1) {
+      setSelectedInstituteId(null);
+      setInstituteId(null);
+      setInstituteConfig(null);
+      setNeedsInstituteSelection(true);
+    }
   };
 
   const sendResetEmail = async (email: string): Promise<{ success: boolean; error?: string }> => {
@@ -273,12 +369,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isImpersonating: Boolean(isSuperAdmin && impersonatedInstituteId),
         impersonatedInstitute,
         allInstitutes,
+        myInstitutes,
+        selectedInstituteId,
+        needsInstituteSelection,
+        planUpgradeNotice,
+        setPlanUpgradeNotice,
         login,
         loginWithGoogle,
         logout,
         sendResetEmail,
         startImpersonation,
         stopImpersonation,
+        selectInstitute,
+        switchInstitute,
         refreshInstitutes: async () => {
           await fetchInstitutes();
         },

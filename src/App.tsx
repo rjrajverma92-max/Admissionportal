@@ -8,6 +8,7 @@ import { UnauthorizedView } from "./components/UnauthorizedView";
 import { SuperAdminLayout } from "./components/superadmin/SuperAdminLayout";
 import { InstituteLayout } from "./components/institute/InstituteLayout";
 import { PublicVerify } from "./components/institute/PublicVerify";
+import { InstituteSelector } from "./components/institute/InstituteSelector";
 import { FullPageLoader } from "./components/shared/Loader";
 
 try {
@@ -25,6 +26,7 @@ const AppContent: React.FC = () => {
     activeInstituteId,
     isSuspended,
     isImpersonating,
+    needsInstituteSelection,
   } = useAuth();
 
   const [isPublicVerifyRoute, setIsPublicVerifyRoute] = useState<boolean>(() => {
@@ -66,6 +68,11 @@ const AppContent: React.FC = () => {
   // 3. Not logged in -> Show unified Login Screen
   if (!user) {
     return <LoginView onOpenVerify={openVerifyRoute} />;
+  }
+
+  // Multi-institute selection if owner has multiple institutes
+  if (needsInstituteSelection) {
+    return <InstituteSelector />;
   }
 
   // 4. Super Admin logged in (and not currently impersonating an institute)

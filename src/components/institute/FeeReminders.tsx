@@ -26,7 +26,7 @@ interface ReminderItem {
 }
 
 export const FeeReminders: React.FC = () => {
-  const { config, students, payments, updateStudent } = useInstitute();
+  const { config, students, payments, updateStudent, studentsWithBalance } = useInstitute();
   const { success, error, info } = useToast();
 
   const [urgencyFilter, setUrgencyFilter] = useState<"all" | "overdue" | "due_soon" | "recent">("all");
@@ -36,8 +36,7 @@ export const FeeReminders: React.FC = () => {
 
   // Grouped students with pending fees
   const reminderItems: ReminderItem[] = useMemo(() => {
-    return students
-      .filter((s) => s.status === "Active" && s.remaining_fees > 0)
+    return studentsWithBalance
       .map((s) => {
         const studentPayments = payments.filter((p) => p.student_id === s.id);
         const lastDate = studentPayments.length > 0 ? studentPayments[0].date : s.admission_date;
@@ -49,13 +48,13 @@ export const FeeReminders: React.FC = () => {
 
         return {
           student: s,
-          remaining: s.remaining_fees,
+          remaining: s.computed_remaining,
           daysSinceLastPayment: days,
           urgency,
         };
       })
       .sort((a, b) => b.daysSinceLastPayment - a.daysSinceLastPayment);
-  }, [students, payments]);
+  }, [studentsWithBalance, payments]);
 
   const filteredItems = useMemo(() => {
     return reminderItems.filter((item) => {

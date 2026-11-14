@@ -24,17 +24,26 @@ interface StudentListProps {
 }
 
 export const StudentList: React.FC<StudentListProps> = ({ onSelectStudent }) => {
-  const { students, courses, batches, config } = useInstitute();
+  const { students, courses, batches, config, getStudentRemainingFees } = useInstitute();
 
   const [searchTerm, setSearchTerm] = useState("");
   const [courseFilter, setCourseFilter] = useState("all");
   const [batchFilter, setBatchFilter] = useState("all");
+  const [sessionFilter, setSessionFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [certFilter, setCertFilter] = useState<string>("all");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
+
+  const uniqueSessions = useMemo(() => {
+    const set = new Set<string>();
+    students.forEach((s) => {
+      if (s.session) set.add(s.session);
+    });
+    return Array.from(set);
+  }, [students]);
 
   // Filter pipeline
   const filteredStudents = useMemo(() => {
@@ -49,6 +58,7 @@ export const StudentList: React.FC<StudentListProps> = ({ onSelectStudent }) => 
 
       const matchesCourse = courseFilter === "all" || s.course_type === courseFilter;
       const matchesBatch = batchFilter === "all" || s.batch_name === batchFilter;
+      const matchesSession = sessionFilter === "all" || s.session === sessionFilter;
       const matchesStatus = statusFilter === "all" || s.status === statusFilter;
       const matchesCert = certFilter === "all" || s.certificate_status === certFilter;
 
@@ -56,9 +66,9 @@ export const StudentList: React.FC<StudentListProps> = ({ onSelectStudent }) => 
       if (startDate && s.admission_date < startDate) matchesDate = false;
       if (endDate && s.admission_date > endDate) matchesDate = false;
 
-      return matchesSearch && matchesCourse && matchesBatch && matchesStatus && matchesCert && matchesDate;
+      return matchesSearch && matchesCourse && matchesBatch && matchesSession && matchesStatus && matchesCert && matchesDate;
     });
-  }, [students, searchTerm, courseFilter, batchFilter, statusFilter, certFilter, startDate, endDate]);
+  }, [students, searchTerm, courseFilter, batchFilter, sessionFilter, statusFilter, certFilter, startDate, endDate]);
 
   // Pagination calculation
   const totalPages = Math.max(1, Math.ceil(filteredStudents.length / itemsPerPage));
@@ -77,6 +87,7 @@ export const StudentList: React.FC<StudentListProps> = ({ onSelectStudent }) => 
       Email: s.email || "",
       Course: s.course_type,
       Batch: s.batch_name,
+      Session: s.session || "",
       "Admission Date": s.admission_date,
       "Total Fees (INR)": s.total_fees,
       "Admission Fees Paid (INR)": s.admission_fees,
@@ -109,6 +120,7 @@ export const StudentList: React.FC<StudentListProps> = ({ onSelectStudent }) => 
     setSearchTerm("");
     setCourseFilter("all");
     setBatchFilter("all");
+    setSessionFilter("all");
     setStatusFilter("all");
     setCertFilter("all");
     setStartDate("");
@@ -120,6 +132,7 @@ export const StudentList: React.FC<StudentListProps> = ({ onSelectStudent }) => 
     searchTerm ||
     courseFilter !== "all" ||
     batchFilter !== "all" ||
+    sessionFilter !== "all" ||
     statusFilter !== "all" ||
     certFilter !== "all" ||
     startDate ||
@@ -194,6 +207,22 @@ export const StudentList: React.FC<StudentListProps> = ({ onSelectStudent }) => 
             {batches.map((b) => (
               <option key={b.id} value={b.name}>
                 {b.name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={sessionFilter}
+            onChange={(e) => {
+              setSessionFilter(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="bg-slate-950 border border-slate-800 text-xs text-slate-300 rounded-xl px-2.5 py-2 focus:outline-none focus:border-teal-500"
+          >
+            <option value="all">All Sessions</option>
+            {uniqueSessions.map((s) => (
+              <option key={s} value={s}>
+                {s}
               </option>
             ))}
           </select>
@@ -275,6 +304,7 @@ export const StudentList: React.FC<StudentListProps> = ({ onSelectStudent }) => 
                 <th className="py-3.5 px-4">Phone</th>
                 <th className="py-3.5 px-4">Course</th>
                 <th className="py-3.5 px-4">Batch</th>
+                <th className="py-3.5 px-4">Session</th>
                 <th className="py-3.5 px-4">Status</th>
                 <th className="py-3.5 px-4">Fees Remaining</th>
                 <th className="py-3.5 px-4 text-right">Actions</th>
@@ -283,7 +313,7 @@ export const StudentList: React.FC<StudentListProps> = ({ onSelectStudent }) => 
             <tbody className="divide-y divide-slate-800/60">
               {paginatedStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-500">
+                  <td colSpan={9} className="py-12 text-center text-slate-500">
                     No student records found matching the active filter criteria.
                   </td>
                 </tr>
@@ -322,6 +352,8 @@ export const StudentList: React.FC<StudentListProps> = ({ onSelectStudent }) => 
 
                       <td className="py-3 px-4 text-slate-400">{student.batch_name}</td>
 
+                      <td className="py-3 px-4 text-amber-300/90">{student.session || "-"}</td>
+
                       <td className="py-3 px-4">
                         <span
                           className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${
@@ -333,15 +365,18 @@ export const StudentList: React.FC<StudentListProps> = ({ onSelectStudent }) => 
                       </td>
 
                       <td className="py-3 px-4">
-                        {student.remaining_fees > 0 ? (
-                          <span className="font-mono font-bold text-amber-400">
-                            {formatCurrency(student.remaining_fees)}
-                          </span>
-                        ) : (
-                          <span className="font-mono text-emerald-400 text-[11px] font-semibold">
-                            Paid in Full
-                          </span>
-                        )}
+                        {(() => {
+                          const rem = getStudentRemainingFees(student.id, Number(student.total_fees || 0));
+                          return rem > 0 ? (
+                            <span className="font-mono font-bold text-amber-400">
+                              {formatCurrency(rem)}
+                            </span>
+                          ) : (
+                            <span className="font-mono text-emerald-400 text-[11px] font-semibold">
+                              Cleared
+                            </span>
+                          );
+                        })()}
                       </td>
 
                       <td className="py-3 px-4 text-right">

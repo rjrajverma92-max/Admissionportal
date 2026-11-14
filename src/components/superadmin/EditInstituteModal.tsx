@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { X, Building2, Check, Shield } from "lucide-react";
+import { X, Building2, Check, Shield, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { InstituteConfig, InstituteFeatures } from "../../types";
 import { useToast } from "../shared/Toast";
+import { useAuth } from "../../contexts/AuthContext";
+import { getPlanFeatures, FEATURE_LABELS, PlanType } from "../../utils/planFeatures";
 import {
   db,
   isFirebaseConfigured,
@@ -23,23 +25,18 @@ export const EditInstituteModal: React.FC<EditInstituteModalProps> = ({
   onSuccess,
 }) => {
   const { success, error } = useToast();
+  const { allInstitutes } = useAuth();
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [city, setCity] = useState("");
   const [address, setAddress] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
-  const [plan, setPlan] = useState<"basic" | "standard" | "pro">("standard");
+  const [plan, setPlan] = useState<PlanType>("standard");
   const [status, setStatus] = useState<"active" | "suspended" | "trial">("active");
-  const [features, setFeatures] = useState<InstituteFeatures>({
-    finance_module: true,
-    fee_reminders: true,
-    birthday_greetings: true,
-    certificate_verify: true,
-    import_leads: true,
-    backup_restore: true,
-  });
+  const [features, setFeatures] = useState<InstituteFeatures>(getPlanFeatures("standard"));
   const [submitting, setSubmitting] = useState(false);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
 
   useEffect(() => {
     if (institute) {
@@ -48,18 +45,17 @@ export const EditInstituteModal: React.FC<EditInstituteModalProps> = ({
       setCity(institute.city || "");
       setAddress(institute.address || "");
       setLogoUrl(institute.logo_url || "");
-      setPlan(institute.plan || "standard");
+      const instPlan = (institute.plan === "pro" ? "pro" : "standard") as PlanType;
+      setPlan(instPlan);
       setStatus(institute.status || "active");
-      setFeatures({
-        finance_module: Boolean(institute.features?.finance_module),
-        fee_reminders: Boolean(institute.features?.fee_reminders),
-        birthday_greetings: Boolean(institute.features?.birthday_greetings),
-        certificate_verify: Boolean(institute.features?.certificate_verify),
-        import_leads: Boolean(institute.features?.import_leads),
-        backup_restore: Boolean(institute.features?.backup_restore),
-      });
+      setFeatures(getPlanFeatures(instPlan));
     }
   }, [institute]);
+
+  const handlePlanChange = (newPlan: PlanType) => {
+    setPlan(newPlan);
+    setFeatures(getPlanFeatures(newPlan));
+  };
 
   if (!isOpen || !institute) return null;
 
@@ -67,11 +63,50 @@ export const EditInstituteModal: React.FC<EditInstituteModalProps> = ({
     setFeatures((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const validatePlanDowngrade = (
+    instituteId: string,
+    newPlan: string
+  ): { allowed: boolean; error?: string } => {
+    const currentInst = allInstitutes.find(
+      (i) => i.institute_id === instituteId
+    );
+    if (!currentInst) return { allowed: true };
+
+    const othersWithSameEmail = allInstitutes.filter(
+      (inst) =>
+        inst.admin_email?.toLowerCase().trim() === currentInst.admin_email?.toLowerCase().trim() &&
+        inst.institute_id !== instituteId
+    );
+
+    if (othersWithSameEmail.length === 0) {
+      return { allowed: true };
+    }
+
+    if (newPlan !== "pro") {
+      return {
+        allowed: false,
+        error: `Cannot downgrade to ${newPlan}. This email is shared with ${othersWithSameEmail.length} other institute(s): ${othersWithSameEmail.map((i) => i.name).join(", ")}. Multi-institute access requires Pro plan on ALL institutes. Remove other institutes first or keep Pro plan.`,
+      };
+    }
+
+    return { allowed: true };
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorBanner(null);
+
     if (!name.trim()) {
       error("Institute name is required");
       return;
+    }
+
+    if (plan !== institute.plan) {
+      const downgradeCheck = validatePlanDowngrade(institute.institute_id, plan);
+      if (!downgradeCheck.allowed) {
+        setErrorBanner(downgradeCheck.error || "Downgrade not allowed");
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -83,7 +118,7 @@ export const EditInstituteModal: React.FC<EditInstituteModalProps> = ({
       logo_url: logoUrl.trim() || "",
       plan,
       status,
-      features,
+      features: getPlanFeatures(plan),
     };
 
     try {
@@ -176,12 +211,11 @@ export const EditInstituteModal: React.FC<EditInstituteModalProps> = ({
               </label>
               <select
                 value={plan}
-                onChange={(e) => setPlan(e.target.value as any)}
+                onChange={(e) => handlePlanChange(e.target.value as PlanType)}
                 className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none transition"
               >
-                <option value="basic">Basic Plan</option>
-                <option value="standard">Standard Plan</option>
-                <option value="pro">Pro Plan</option>
+                <option value="standard">Standard — ₹499/month</option>
+                <option value="pro">Pro — ₹999/month</option>
               </select>
             </div>
           </div>
@@ -237,47 +271,35 @@ export const EditInstituteModal: React.FC<EditInstituteModalProps> = ({
             />
           </div>
 
-          {/* Module Toggles */}
-          <div className="pt-2">
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2">
-              Features Configuration
-            </label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 bg-slate-950/80 p-3.5 rounded-2xl border border-slate-800">
-              {[
-                { id: "finance_module", label: "Finance & P&L" },
-                { id: "fee_reminders", label: "Fee Reminders" },
-                { id: "birthday_greetings", label: "Birthday Greetings" },
-                { id: "certificate_verify", label: "Certificate Verify" },
-                { id: "import_leads", label: "Import CSV Leads" },
-                { id: "backup_restore", label: "Backup & Restore" },
-              ].map(({ id, label }) => {
-                const active = features[id as keyof InstituteFeatures];
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => toggleFeature(id as keyof InstituteFeatures)}
-                    className={`flex items-center gap-2 p-2 rounded-xl text-xs font-medium border text-left transition ${
-                      active
-                        ? "bg-teal-500/10 border-teal-500/40 text-teal-300"
-                        : "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    <div
-                      className={`w-4 h-4 rounded-md flex items-center justify-center border ${
-                        active
-                          ? "bg-teal-500 border-teal-400 text-slate-950"
-                          : "border-slate-700 bg-slate-950"
-                      }`}
-                    >
-                      {active && <Check className="w-3 h-3 stroke-[3]" />}
-                    </div>
-                    <span className="truncate">{label}</span>
-                  </button>
-                );
-              })}
+          {/* Features Preview Box */}
+          {plan && (
+            <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-4 mt-3">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
+                Features included in {plan} plan:
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {Object.entries(getPlanFeatures(plan)).map(([key, enabled]) => (
+                  <div key={key} className="flex items-center gap-2">
+                    {enabled ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    ) : (
+                      <XCircle className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                    )}
+                    <span className={`text-xs ${enabled ? "text-slate-200" : "text-slate-500"}`}>
+                      {FEATURE_LABELS[key]}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
+
+          {errorBanner && (
+            <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-4 flex items-start gap-3">
+              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              <p className="text-sm text-rose-300">{errorBanner}</p>
+            </div>
+          )}
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
             <button

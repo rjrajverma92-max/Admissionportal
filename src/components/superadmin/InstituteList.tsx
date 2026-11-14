@@ -141,7 +141,6 @@ export const InstituteList: React.FC<InstituteListProps> = ({
             className="bg-slate-900 border border-slate-800 text-xs text-slate-300 rounded-xl px-3 py-2.5 focus:outline-none focus:border-teal-500"
           >
             <option value="all">All Plans</option>
-            <option value="basic">Basic</option>
             <option value="standard">Standard</option>
             <option value="pro">Pro</option>
           </select>
