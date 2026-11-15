@@ -1,9 +1,84 @@
 import React from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { AlertOctagon, LogOut, Mail, PhoneCall } from "lucide-react";
+import { AlertOctagon, LogOut, Mail, PhoneCall, Clock, CheckCircle2 } from "lucide-react";
 
 export const SuspendedView: React.FC = () => {
   const { logout, instituteConfig, user } = useAuth();
+
+  const isTrialExpired = instituteConfig?.plan === "trial" && (instituteConfig?.trial_expired || instituteConfig?.subscription_expired);
+  const isSubExpired = instituteConfig?.subscription_expired && instituteConfig?.plan !== "trial";
+
+  if (isTrialExpired || isSubExpired) {
+    const planName = isTrialExpired ? "Trial" : (instituteConfig?.plan === "pro" ? "Pro" : "Standard");
+    const endDate = instituteConfig?.subscription_end_date || instituteConfig?.trial_end_date || "";
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+        <div className="text-center max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl text-slate-100">
+          
+          <div className="w-20 h-20 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto mb-6">
+            <Clock className="w-10 h-10 text-amber-400" />
+          </div>
+          
+          <h1 className="text-2xl font-bold text-white mb-2">
+            {isTrialExpired ? "Free Trial Ended" : "Subscription Expired"}
+          </h1>
+          
+          <p className="text-slate-400 mb-2 text-xs sm:text-sm">
+            Your {planName} plan for
+            <span className="text-white font-semibold">
+              {" "}{instituteConfig?.name}{" "}
+            </span>
+            expired on{" "}
+            <span className="text-amber-400">
+              {endDate ? new Date(endDate).toLocaleDateString("en-IN", {
+                day: "numeric",
+                month: "long",
+                year: "numeric"
+              }) : "recently"}
+            </span>.
+          </p>
+
+          <p className="text-slate-400 mb-6 text-xs">
+            Your data is safe and will remain accessible once you renew.
+          </p>
+
+          {/* Upgrade options */}
+          <div className="grid grid-cols-2 gap-3 mb-6">
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 text-left">
+              <p className="text-white font-bold text-base">₹499<span className="text-slate-400 text-[11px] font-normal">/mo</span></p>
+              <p className="text-teal-400 font-semibold text-xs mt-0.5">Standard Plan</p>
+              <p className="text-slate-500 text-[10px] mt-1">₹4,999/yr (Save 17%)</p>
+            </div>
+            <div className="bg-teal-500/10 border border-teal-500/30 rounded-xl p-4 text-left">
+              <p className="text-white font-bold text-base">₹999<span className="text-slate-400 text-[11px] font-normal">/mo</span></p>
+              <p className="text-teal-400 font-semibold text-xs mt-0.5">Pro Plan ⭐</p>
+              <p className="text-slate-500 text-[10px] mt-1">₹9,999/yr (Save 17%)</p>
+            </div>
+          </div>
+
+          <p className="text-slate-400 text-xs mb-4">
+            Contact your administrator to renew access:
+          </p>
+
+          <a 
+            href="https://wa.me/919669887124" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center w-full gap-2 px-6 py-3 rounded-xl bg-green-500 hover:bg-green-400 text-slate-950 font-semibold text-sm transition shadow-lg shadow-green-500/20 mb-3"
+          >
+            WhatsApp to Renew →
+          </a>
+          
+          <button
+            onClick={logout}
+            className="block mx-auto text-slate-500 hover:text-slate-300 text-xs transition"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-4 text-slate-100">

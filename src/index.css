@@ -1,1 +1,58 @@
 @import "tailwindcss";
+
+@layer base {
+  body {
+    @apply bg-slate-950 text-slate-100 antialiased selection:bg-teal-500/30 selection:text-teal-200;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Custom smooth scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-slate-950;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-slate-800 rounded-full hover:bg-slate-700 transition-colors;
+  }
+}
+
+:root {
+  --spacing-page: 2.5rem;      /* p-10 */
+  --spacing-section: 2.5rem;   /* gap-10 */
+  --spacing-card: 1.75rem;     /* p-7 */
+  --spacing-row: 1.25rem 1.75rem;
+  --radius-card: 1.25rem;      /* rounded-3xl / rounded-2xl */
+  --radius-input: 0.875rem;    /* rounded-xl */
+}
+
+/* Reusable high-end SaaS classes */
+.saas-card {
+  @apply bg-slate-900/70 border border-slate-800/80 backdrop-blur-xl rounded-2xl p-7 shadow-2xl shadow-black/40 transition-all duration-200;
+}
+
+.saas-card-hover {
+  @apply hover:border-slate-700/80 hover:bg-slate-900/90 hover:shadow-teal-500/5;
+}
+
+.saas-input {
+  @apply w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-3 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 transition-all duration-200 text-sm font-medium;
+}
+
+.saas-select {
+  @apply w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 transition-all duration-200 text-sm font-medium;
+}
+
+.saas-button-primary {
+  @apply inline-flex items-center justify-center gap-2 bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-slate-950 font-semibold px-5 py-2.5 rounded-xl shadow-lg shadow-teal-500/25 hover:shadow-teal-500/40 active:scale-[0.98] transition-all duration-200 text-sm cursor-pointer;
+}
+
+.saas-button-secondary {
+  @apply inline-flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-medium px-4 py-2.5 rounded-xl border border-slate-700/60 transition-all duration-200 text-sm cursor-pointer active:scale-[0.98];
+}
+
+.saas-badge {
+  @apply inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide;
+}

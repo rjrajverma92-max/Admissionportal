@@ -28,6 +28,7 @@ import {
   StudentStatus,
   PaymentMode,
   ExpenseCategory,
+  EnrollStudentInput,
 } from "../types";
 import { generateRegistrationNumber } from "../services/registrationService";
 import {
@@ -57,29 +58,7 @@ interface InstituteContextType {
   loadingData: boolean;
   getStudentRemainingFees: (studentId: string, totalFees: number) => number;
   studentsWithBalance: (Student & { computed_remaining: number })[];
-  enrollStudent: (data: {
-    name: string;
-    phone: string;
-    email?: string;
-    address?: string;
-    dob?: string;
-    admission_date: string;
-    course_type: string;
-    batch_name: string;
-    batch_start_date: string;
-    total_fees: number;
-    admission_fees: number;
-    payment_mode: PaymentMode;
-    payment_note?: string;
-    linked_lead_id?: string;
-    affiliated_university?: string;
-    university_total_fees?: number;
-    university_admission_fees?: number;
-    institute_portion?: number;
-    father_name?: string;
-    mother_name?: string;
-    session?: string;
-  }) => Promise<{ success: boolean; student?: Student; initialPayment?: Payment; error?: string }>;
+  enrollStudent: (data: EnrollStudentInput) => Promise<{ success: boolean; student?: Student; initialPayment?: Payment; error?: string }>;
   updateStudent: (studentId: string, partial: Partial<Student>) => Promise<void>;
   updateStudentStatus: (
     studentId: string,
@@ -415,28 +394,9 @@ export const InstituteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   };
 
-  const enrollStudent = async (data: {
-    name: string;
-    phone: string;
-    email?: string;
-    address?: string;
-    dob?: string;
-    admission_date: string;
-    course_type: string;
-    batch_name: string;
-    batch_start_date: string;
-    total_fees: number;
-    admission_fees: number;
-    payment_mode: PaymentMode;
-    payment_note?: string;
-    linked_lead_id?: string;
-    affiliated_university?: string;
-    university_total_fees?: number;
-    university_admission_fees?: number;
-    father_name?: string;
-    mother_name?: string;
-    session?: string;
-  }): Promise<{ success: boolean; student?: Student; initialPayment?: Payment; error?: string }> => {
+  const enrollStudent = async (
+    data: EnrollStudentInput
+  ): Promise<{ success: boolean; student?: Student; initialPayment?: Payment; error?: string }> => {
     if (!activeInstituteId || !config) {
       return { success: false, error: "Institute not active" };
     }
@@ -475,6 +435,10 @@ export const InstituteProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         batch_name: data.batch_name,
         batch_start_date: data.batch_start_date,
         total_fees: tFees,
+        original_fees: Number(data.original_fees || tFees),
+        discount_amount: Number(data.discount_amount || 0),
+        discount_percent: Number(data.discount_percent || 0),
+        remarks: (data.remarks || "").trim(),
         admission_fees: instituteAmountReceived,
         remaining_fees: remaining,
         affiliated_university: hasUniv ? data.affiliated_university!.trim() : "",

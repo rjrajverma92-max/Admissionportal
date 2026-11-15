@@ -55,8 +55,8 @@ export const ReleaseNotesManager: React.FC = () => {
         list.push({ id: d.id, ...d.data() } as ReleaseNote);
       });
       setNotes(list);
-    } catch (err) {
-      console.error("Error fetching release notes:", err);
+    } catch (err: any) {
+      console.warn("Notice fetching release notes:", err?.message || err);
       // Fallback without ordering if index is missing
       try {
         const snap = await getDocs(collection(db, "release_notes"));
@@ -65,8 +65,9 @@ export const ReleaseNotesManager: React.FC = () => {
           list.push({ id: d.id, ...d.data() } as ReleaseNote);
         });
         setNotes(list);
-      } catch (e2) {
-        console.error("Fallback fetch error:", e2);
+      } catch (e2: any) {
+        console.warn("Notice fallback fetch release notes:", e2?.message || e2);
+        setNotes([]);
       }
     } finally {
       setLoading(false);

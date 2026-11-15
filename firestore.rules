@@ -11,6 +11,16 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Subscription payments collection
+    match /subscription_payments/{paymentId} {
+      allow read, write: if true;
+    }
+
+    // Subscription overrides collection
+    match /subscription_overrides/{overrideId} {
+      allow read, write: if true;
+    }
+
     // Multi-tenant institute management structure
     match /institutes/{instituteId} {
       // Allow reading, creating, updating, and deleting institute tenant config

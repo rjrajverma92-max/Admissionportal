@@ -34,6 +34,7 @@ import {
   CheckCircle2,
   Crown,
   Sparkles,
+  Clock,
 } from "lucide-react";
 
 export const InstituteLayout: React.FC = () => {
@@ -65,11 +66,15 @@ export const InstituteLayout: React.FC = () => {
           }
         });
 
-        const readSnap = await getDocs(collection(db, `institutes/${config.institute_id}/read_notifications`));
         const readNoteIds: string[] = [];
-        readSnap.forEach((d) => {
-          readNoteIds.push(d.data().note_id || d.id);
-        });
+        try {
+          const readSnap = await getDocs(collection(db, `institutes/${config.institute_id}/read_notifications`));
+          readSnap.forEach((d) => {
+            readNoteIds.push(d.data().note_id || d.id);
+          });
+        } catch {
+          // Ignore read notifications permission or collection error
+        }
 
         const unread = activeNotes.filter((note) => !readNoteIds.includes(note.id));
         setReleaseNotes(activeNotes);
@@ -78,7 +83,8 @@ export const InstituteLayout: React.FC = () => {
         if (unread.length > 0) {
           setShowWhatsNew(true);
         }
-      } catch (err) {
+      } catch (err: any) {
+        console.warn("Notice fetching release notes:", err?.message || err);
         setReleaseNotes([]);
         setUnreadNotes([]);
       }
@@ -161,7 +167,7 @@ export const InstituteLayout: React.FC = () => {
     >
       {/* Super Admin Impersonation Bar */}
       {isImpersonating && (
-        <div className="bg-amber-500 text-slate-950 px-4 py-2 text-xs font-bold flex items-center justify-between sticky top-0 z-50 shadow-md">
+        <div className="bg-amber-500 text-slate-950 px-8 py-2 text-xs font-bold flex items-center justify-between sticky top-0 z-50 shadow-md">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-slate-950 animate-ping" />
             <span>
@@ -180,7 +186,7 @@ export const InstituteLayout: React.FC = () => {
 
       {/* Plan Upgrade Notice Banner */}
       {planUpgradeNotice.show && (
-        <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-2.5 flex items-center justify-between gap-4 z-50">
+        <div className="bg-amber-500/10 border-b border-amber-500/30 px-8 py-2.5 flex items-center justify-between gap-4 z-50">
           <div className="flex items-center gap-2">
             <Crown className="w-4 h-4 text-amber-400 shrink-0" />
             <p className="text-xs text-amber-300">
@@ -196,6 +202,57 @@ export const InstituteLayout: React.FC = () => {
         </div>
       )}
 
+      {/* Subscription Expiry / Trial Warning Banner */}
+      {(() => {
+        const getSubscriptionDaysLeft = (): number => {
+          if (!config?.subscription_end_date) return 999;
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const end = new Date(
+            config.subscription_end_date
+          );
+          end.setHours(0, 0, 0, 0);
+          return Math.max(0, Math.ceil(
+            (end.getTime() - today.getTime()) 
+            / (1000 * 60 * 60 * 24)
+          ));
+        };
+        const daysLeft = getSubscriptionDaysLeft();
+        const isTrial = config?.plan === "trial";
+        if (daysLeft > 7) return null;
+        return (
+          <div className={`px-8 py-2.5 text-xs font-medium flex items-center justify-between gap-4 border-b ${
+            daysLeft <= 2
+              ? "bg-rose-500/10 border-rose-500/30 text-rose-300"
+              : daysLeft <= 5
+              ? "bg-amber-500/10 border-amber-500/30 text-amber-300"
+              : "bg-blue-500/10 border-blue-500/30 text-blue-300"
+          }`}>
+            <div className="flex items-center gap-2">
+              <Clock className={`w-3.5 h-3.5 shrink-0 ${
+                daysLeft <= 2 ? "text-rose-400" : daysLeft <= 5 ? "text-amber-400" : "text-blue-400"
+              }`} />
+              <span>
+                {isTrial
+                  ? daysLeft === 0
+                    ? "⚠️ Trial expires TODAY!"
+                    : `🎯 Trial ends in ${daysLeft} day(s)`
+                  : daysLeft === 0
+                    ? "⚠️ Subscription expires TODAY!"
+                    : `⏰ Subscription expires in ${daysLeft} day(s)`
+                }
+                {" — Contact admin to renew."}
+              </span>
+            </div>
+            <span className="text-white/40 shrink-0">
+              Expires: {new Date(
+                config?.subscription_end_date || ""
+              ).toLocaleDateString("en-IN")}
+            </span>
+          </div>
+        );
+      })()}
+
       {/* Main Top Navbar */}
       <header
         className={`sticky ${
@@ -206,7 +263,7 @@ export const InstituteLayout: React.FC = () => {
             : "bg-slate-900/90 border-slate-800"
         }`}
       >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+        <div className="w-full px-6 lg:px-10 h-16 flex items-center justify-between gap-4">
           {/* Institute Logo & Name */}
           <div className="flex items-center gap-3">
             {config?.logo_url ? (
@@ -221,22 +278,21 @@ export const InstituteLayout: React.FC = () => {
               </div>
             )}
             <div className="truncate">
-              <h1 className="font-bold text-base tracking-tight truncate leading-tight">
+              <h1 className="font-bold text-base tracking-tight truncate leading-tight text-white">
                 {config?.name || "Institute Portal"}
               </h1>
               <p
-                className={`text-[11px] truncate ${
+                className={`text-xs truncate ${
                   isLightMode ? "text-slate-500" : "text-slate-400"
                 }`}
               >
-                Admission & Fees Portal • Prefix:{" "}
-                <span className="font-mono text-teal-400 font-bold">{config?.reg_prefix}</span>
+                Prefix: <span className="font-mono text-teal-400 font-bold">{config?.reg_prefix}</span>
               </p>
             </div>
           </div>
 
           {/* Desktop Nav Items */}
-          <nav className="hidden xl:flex items-center gap-1">
+          <nav className="hidden xl:flex items-center gap-1.5">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
@@ -244,41 +300,41 @@ export const InstituteLayout: React.FC = () => {
                 <button
                   key={item.id}
                   onClick={() => handleNavigate(item.id)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${
                     isActive
-                      ? "bg-teal-500 text-slate-950 shadow-md shadow-teal-500/20"
+                      ? "bg-teal-500/10 text-teal-400"
                       : isLightMode
-                      ? "text-slate-600 hover:text-slate-900 hover:bg-slate-200"
-                      : "text-slate-400 hover:text-white hover:bg-slate-800"
+                      ? "text-slate-600 hover:text-slate-900 hover:bg-slate-200 rounded-lg"
+                      : "text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg"
                   }`}
                 >
-                  <Icon className="w-3.5 h-3.5" />
+                  <Icon className="w-4 h-4" />
                   <span>{item.label}</span>
                 </button>
               );
             })}
           </nav>
 
-          {/* Right actions: Switch Institute, Light toggle & Logout */}
+          {/* Right actions */}
           <div className="flex items-center gap-2">
             {myInstitutes.length > 1 && (
               <button
                 onClick={switchInstitute}
                 title="Switch Institute"
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition ${
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border transition ${
                   isLightMode
                     ? "bg-teal-50 border-teal-200 text-teal-700 hover:bg-teal-100"
                     : "bg-teal-500/10 border-teal-500/30 text-teal-300 hover:bg-teal-500/20"
                 }`}
               >
                 <Building2 className="w-4 h-4" />
-                <span className="hidden sm:inline">Switch Institute</span>
+                <span className="hidden sm:inline">Switch</span>
               </button>
             )}
 
             <button
               onClick={() => setShowWhatsNew(true)}
-              className="relative p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+              className="relative p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition w-9 h-9 flex items-center justify-center"
               title="What's New / Release Notes"
             >
               <Bell className="w-4 h-4" />
@@ -292,7 +348,7 @@ export const InstituteLayout: React.FC = () => {
             <button
               onClick={toggleLightMode}
               title={isLightMode ? "Switch to Dark Mode" : "Switch to Light Mode"}
-              className={`p-2 rounded-xl border transition ${
+              className={`p-2 rounded-lg border transition w-9 h-9 flex items-center justify-center ${
                 isLightMode
                   ? "bg-slate-200 border-slate-300 text-slate-700 hover:text-slate-900"
                   : "bg-slate-800 border-slate-700 text-slate-300 hover:text-white"
@@ -304,7 +360,7 @@ export const InstituteLayout: React.FC = () => {
             <button
               onClick={logout}
               title="Sign Out"
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition ${
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border transition w-9 h-9 sm:w-auto sm:h-auto items-center justify-center ${
                 isLightMode
                   ? "bg-slate-200 border-slate-300 text-slate-700 hover:text-rose-600 hover:border-rose-300"
                   : "bg-slate-800 border-slate-700 text-slate-300 hover:text-rose-300 hover:border-rose-500/30"
@@ -317,7 +373,7 @@ export const InstituteLayout: React.FC = () => {
             {/* Mobile Hamburger Button */}
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="xl:hidden p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300"
+              className="xl:hidden p-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 w-9 h-9 flex items-center justify-center"
             >
               {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
@@ -356,7 +412,7 @@ export const InstituteLayout: React.FC = () => {
       </header>
 
       {/* Main Content View Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-1 w-full px-6 lg:px-10 py-8">
         {activeTab === "dashboard" && <Dashboard onNavigate={handleNavigate} />}
 
         {activeTab === "enroll" && (
@@ -403,24 +459,26 @@ export const InstituteLayout: React.FC = () => {
       {/* What's New Modal */}
       {showWhatsNew && unreadNotes.length > 0 && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg max-h-[80vh] overflow-y-auto text-slate-100 shadow-2xl">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg max-h-[80vh] overflow-y-auto text-slate-100 shadow-2xl">
             {/* Header */}
-            <div className="p-5 border-b border-slate-800 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/30 flex items-center justify-center text-teal-400">
-                <Sparkles className="w-5 h-5" />
-              </div>
-              <div>
-                <h2 className="text-white font-bold">What's New</h2>
-                <p className="text-xs text-slate-400">
-                  {unreadNotes.length} new update(s) since your last login
-                </p>
+            <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/30 flex items-center justify-center text-teal-400">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-white">What's New</h2>
+                  <p className="text-xs text-slate-400">
+                    {unreadNotes.length} new update(s) since your last login
+                  </p>
+                </div>
               </div>
             </div>
 
             {/* Notes List */}
-            <div className="p-5 space-y-5">
+            <div className="px-6 py-6 space-y-5">
               {unreadNotes.map((note) => (
-                <div key={note.id} className="border border-slate-800 rounded-xl p-4 space-y-3 bg-slate-950/40">
+                <div key={note.id} className="border border-slate-800 rounded-2xl p-5 space-y-3 bg-slate-950/40">
                   {/* Version + Title */}
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-mono bg-teal-500/10 text-teal-400 border border-teal-500/30 px-2 py-0.5 rounded-full">
@@ -433,13 +491,13 @@ export const InstituteLayout: React.FC = () => {
                   <p className="text-slate-300 text-sm leading-relaxed">{note.description}</p>
 
                   {/* Benefit */}
-                  <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-3">
+                  <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3.5">
                     <p className="text-xs font-semibold text-emerald-400 mb-1">✅ Benefit</p>
                     <p className="text-xs text-slate-300">{note.benefit}</p>
                   </div>
 
                   {/* How to Use */}
-                  <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-3">
+                  <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-3.5">
                     <p className="text-xs font-semibold text-blue-400 mb-1">📖 How to Use</p>
                     <p className="text-xs text-slate-300 whitespace-pre-line">{note.how_to_use}</p>
                   </div>
@@ -448,10 +506,10 @@ export const InstituteLayout: React.FC = () => {
             </div>
 
             {/* Footer */}
-            <div className="p-5 border-t border-slate-800">
+            <div className="px-6 py-5 border-t border-slate-800 flex justify-end gap-3">
               <button
                 onClick={markAllAsRead}
-                className="w-full py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-semibold text-sm transition shadow-lg shadow-teal-500/20"
+                className="px-6 py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-semibold text-sm transition shadow-lg shadow-teal-500/20"
               >
                 Got it! Continue to Portal →
               </button>

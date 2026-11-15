@@ -336,11 +336,18 @@ export const StudentList: React.FC<StudentListProps> = ({ onSelectStudent }) => 
                       </td>
 
                       <td className="py-3 px-4">
-                        <div className="font-semibold text-white group-hover:text-teal-300 transition">
-                          {student.name}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-white group-hover:text-teal-300 transition">
+                            {student.name}
+                          </span>
+                          {Number(student.discount_amount || 0) > 0 && (
+                            <span className="px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-300 border border-violet-500/30 text-[10px] font-semibold">
+                              {student.discount_percent ? `${student.discount_percent}% off` : "Discount"}
+                            </span>
+                          )}
                         </div>
                         {student.certificate_status === "Issued" && (
-                          <span className="inline-flex items-center gap-1 text-[10px] text-teal-400">
+                          <span className="inline-flex items-center gap-1 text-[10px] text-teal-400 mt-0.5">
                             <CheckCircle2 className="w-3 h-3" /> Cert Issued
                           </span>
                         )}

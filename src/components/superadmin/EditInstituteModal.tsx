@@ -45,7 +45,7 @@ export const EditInstituteModal: React.FC<EditInstituteModalProps> = ({
       setCity(institute.city || "");
       setAddress(institute.address || "");
       setLogoUrl(institute.logo_url || "");
-      const instPlan = (institute.plan === "pro" ? "pro" : "standard") as PlanType;
+      const instPlan = (institute.plan === "pro" ? "pro" : institute.plan === "trial" ? "trial" : "standard") as PlanType;
       setPlan(instPlan);
       setStatus(institute.status || "active");
       setFeatures(getPlanFeatures(instPlan));
@@ -120,6 +120,11 @@ export const EditInstituteModal: React.FC<EditInstituteModalProps> = ({
       status,
       features: getPlanFeatures(plan),
     };
+
+    if (institute.plan === "trial" && plan !== "trial") {
+      updatedConfig.status = "active";
+      updatedConfig.trial_expired = false;
+    }
 
     try {
       if (isFirebaseConfigured && db) {
@@ -214,11 +219,18 @@ export const EditInstituteModal: React.FC<EditInstituteModalProps> = ({
                 onChange={(e) => handlePlanChange(e.target.value as PlanType)}
                 className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none transition"
               >
+                <option value="trial">Trial (15 Days Free)</option>
                 <option value="standard">Standard — ₹499/month</option>
                 <option value="pro">Pro — ₹999/month</option>
               </select>
             </div>
           </div>
+
+          {institute.plan === "trial" && plan !== "trial" && (
+            <div className="bg-teal-500/10 border border-teal-500/30 rounded-xl p-3 text-xs text-teal-300">
+              ⬆️ Upgrading from Trial to {plan.toUpperCase()}. Institute access will be restored immediately.
+            </div>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>

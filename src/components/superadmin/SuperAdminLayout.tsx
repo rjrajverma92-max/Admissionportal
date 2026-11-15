@@ -4,6 +4,7 @@ import { SuperAdminDashboard } from "./SuperAdminDashboard";
 import { InstituteList } from "./InstituteList";
 import { SuperAdminDebugTools } from "./SuperAdminDebugTools";
 import { ReleaseNotesManager } from "./ReleaseNotesManager";
+import { BillingManager } from "./BillingManager";
 import { AddInstituteModal } from "./AddInstituteModal";
 import { EditInstituteModal } from "./EditInstituteModal";
 import { InstituteConfig } from "../../types";
@@ -23,12 +24,13 @@ import {
   ExternalLink,
   Bug,
   Bell,
+  CreditCard,
 } from "lucide-react";
 
 export const SuperAdminLayout: React.FC = () => {
   const { user, logout, allInstitutes, refreshInstitutes } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<"dashboard" | "institutes" | "debug" | "releases">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "institutes" | "billing" | "debug" | "releases">("dashboard");
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<InstituteConfig | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -72,7 +74,7 @@ service cloud.firestore {
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
       {/* Top Navigation Bar */}
       <header className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+        <div className="w-full px-6 lg:px-10 h-16 flex items-center justify-between gap-4">
           {/* Logo & Title */}
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-teal-500/20 to-emerald-500/10 border border-teal-500/30 text-teal-400 flex items-center justify-center shadow-lg shadow-teal-500/10">
@@ -117,6 +119,17 @@ service cloud.firestore {
               <span className="ml-1 text-[10px] px-1.5 py-0.2 rounded-full bg-slate-900 border border-slate-700 text-slate-300">
                 {allInstitutes.length}
               </span>
+            </button>
+            <button
+              onClick={() => setActiveTab("billing")}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
+                activeTab === "billing"
+                  ? "bg-teal-500 text-slate-950 shadow-md shadow-teal-500/20"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <CreditCard className="w-3.5 h-3.5" />
+              <span>💳 Billing</span>
             </button>
             <button
               onClick={() => setActiveTab("debug")}
@@ -182,7 +195,7 @@ service cloud.firestore {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-1 w-full px-6 lg:px-10 py-8">
         {activeTab === "dashboard" ? (
           <SuperAdminDashboard
             institutes={allInstitutes}
@@ -196,6 +209,8 @@ service cloud.firestore {
             onOpenEditModal={(inst) => setEditTarget(inst)}
             onRefresh={refreshInstitutes}
           />
+        ) : activeTab === "billing" ? (
+          <BillingManager institutes={allInstitutes} onRefresh={refreshInstitutes} />
         ) : activeTab === "debug" ? (
           <SuperAdminDebugTools institutes={allInstitutes} />
         ) : (

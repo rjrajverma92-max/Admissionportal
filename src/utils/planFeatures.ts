@@ -1,4 +1,15 @@
 export const PLAN_FEATURES = {
+  trial: {
+    finance_module: true,
+    fee_reminders: true,
+    birthday_greetings: true,
+    certificate_verify: true,
+    import_leads: true,
+    university_fees: true,
+    backup_restore: true,
+    email_notifications: true,
+    multi_institute: false,
+  },
   standard: {
     finance_module: false,
     fee_reminders: true,
@@ -23,7 +34,7 @@ export const PLAN_FEATURES = {
   },
 };
 
-export type PlanType = "standard" | "pro";
+export type PlanType = "trial" | "standard" | "pro";
 
 export const getPlanFeatures = (plan: PlanType) => {
   return PLAN_FEATURES[plan] || PLAN_FEATURES.standard;

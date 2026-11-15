@@ -141,6 +141,7 @@ export const InstituteList: React.FC<InstituteListProps> = ({
             className="bg-slate-900 border border-slate-800 text-xs text-slate-300 rounded-xl px-3 py-2.5 focus:outline-none focus:border-teal-500"
           >
             <option value="all">All Plans</option>
+            <option value="trial">Trial Only</option>
             <option value="standard">Standard</option>
             <option value="pro">Pro</option>
           </select>
@@ -163,7 +164,8 @@ export const InstituteList: React.FC<InstituteListProps> = ({
                 <th className="py-3.5 px-4">Institute & Prefix</th>
                 <th className="py-3.5 px-4">City & Contact</th>
                 <th className="py-3.5 px-4">Admin Account</th>
-                <th className="py-3.5 px-4">Plan</th>
+                <th className="py-3.5 px-4">Plan & Duration</th>
+                <th className="py-3.5 px-4">Expiry / Days Left</th>
                 <th className="py-3.5 px-4">Status</th>
                 <th className="py-3.5 px-4">Created Date</th>
                 <th className="py-3.5 px-4 text-right">Actions</th>
@@ -172,7 +174,7 @@ export const InstituteList: React.FC<InstituteListProps> = ({
             <tbody className="divide-y divide-slate-800/60">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-500">
+                  <td colSpan={8} className="py-12 text-center text-slate-500">
                     No institutes matching your filters.
                   </td>
                 </tr>
@@ -187,8 +189,9 @@ export const InstituteList: React.FC<InstituteListProps> = ({
                   const planBadges = {
                     pro: "bg-teal-500/10 text-teal-300 border-teal-500/30 font-semibold",
                     standard: "bg-blue-500/10 text-blue-300 border-blue-500/30 font-semibold",
+                    trial: "bg-amber-500/10 text-amber-300 border-amber-500/30 font-semibold",
                     basic: "bg-slate-800 text-slate-400 border-slate-700",
-                  }[inst.plan];
+                  }[inst.plan as string];
 
                   return (
                     <tr
@@ -237,11 +240,45 @@ export const InstituteList: React.FC<InstituteListProps> = ({
                       </td>
 
                       <td className="py-3.5 px-4">
-                        <span
-                          className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] uppercase tracking-wider border ${planBadges}`}
-                        >
-                          {inst.plan}
+                        <span className="inline-block px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px] uppercase tracking-wider text-teal-300 font-semibold">
+                          {inst.plan} {inst.subscription_duration ? `• ${inst.subscription_duration}` : ""}
                         </span>
+                      </td>
+
+                      <td className="py-3.5 px-4">
+                        {(() => {
+                          const endStr = inst.subscription_end_date || inst.trial_end_date;
+                          if (!endStr) return <span className="text-slate-500">-</span>;
+                          const today = new Date();
+                          today.setHours(0, 0, 0, 0);
+                          const end = new Date(endStr);
+                          end.setHours(0, 0, 0, 0);
+                          const diff = end.getTime() - today.getTime();
+                          const daysLeft = Math.ceil(diff / (1000 * 60 * 60 * 24));
+                          const isExpired = daysLeft <= 0 || inst.subscription_expired || inst.trial_expired;
+
+                          let badgeClass = "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+                          let text = `${daysLeft} days left`;
+                          if (isExpired) {
+                            badgeClass = "bg-rose-500/10 text-rose-400 border-rose-500/20";
+                            text = "EXPIRED ❌";
+                          } else if (daysLeft < 7) {
+                            badgeClass = "bg-rose-500/10 text-rose-400 border-rose-500/20";
+                            text = `${daysLeft} days left 🔴`;
+                          } else if (daysLeft <= 30) {
+                            badgeClass = "bg-amber-500/10 text-amber-400 border-amber-500/20";
+                            text = `${daysLeft} days left ⚠️`;
+                          }
+
+                          return (
+                            <div>
+                              <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${badgeClass}`}>
+                                {text}
+                              </span>
+                              <div className="text-[10px] text-slate-500 font-mono mt-0.5">{formatDate(endStr)}</div>
+                            </div>
+                          );
+                        })()}
                       </td>
 
                       <td className="py-3.5 px-4">

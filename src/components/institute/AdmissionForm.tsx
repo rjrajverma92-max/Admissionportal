@@ -5,6 +5,8 @@ import { ReceiptModal } from "./ReceiptModal";
 import { Student, Payment, PaymentMode, Lead } from "../../types";
 import { isValidPhone, cleanPhone10, isValidEmail } from "../../utils/validators";
 import { getTodayDateString, formatCurrency } from "../../utils/formatters";
+import { db } from "../../firebase";
+import { collection, doc, setDoc, serverTimestamp } from "firebase/firestore";
 import {
   UserPlus,
   CheckCircle2,
@@ -20,6 +22,9 @@ import {
   RotateCcw,
   Sparkles,
   ArrowRight,
+  Clock,
+  Building2,
+  Tag,
 } from "lucide-react";
 
 interface AdmissionFormProps {
@@ -33,7 +38,7 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
   onClearPrefillLead,
   onNavigateToRegistry,
 }) => {
-  const { config, courses, batches, universities, sessions, enrollStudent } = useInstitute();
+  const { config, courses, batches, universities, sessions, enrollStudent, instituteId } = useInstitute();
   const { success, error, warning } = useToast();
 
   const [name, setName] = useState("");
@@ -56,6 +61,14 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
   const [universityAdmissionFees, setUniversityAdmissionFees] = useState<number | "">("");
   const [session, setSession] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  // Late Fees State
+  const [hasLateFees, setHasLateFees] = useState(false);
+  const [lateFeesAmount, setLateFeesAmount] = useState<number | "">("");
+  const [lateFeesReason, setLateFeesReason] = useState("");
+  const [discountAmount, setDiscountAmount] = useState<number | "">("");
+  const [discountPercent, setDiscountPercent] = useState<number | "">("");
+  const [remarks, setRemarks] = useState("");
 
   // Success state for after submission
   const [enrolledStudent, setEnrolledStudent] = useState<Student | null>(null);
@@ -121,6 +134,12 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
     setUniversityTotalFees("");
     setUniversityAdmissionFees("");
     setSession("");
+    setHasLateFees(false);
+    setLateFeesAmount("");
+    setLateFeesReason("");
+    setDiscountAmount("");
+    setDiscountPercent("");
+    setRemarks("");
     if (activeCourses.length > 0) {
       handleCourseChange(activeCourses[0].name);
     }
@@ -166,7 +185,15 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
     }
 
     const tFees = Number(totalFees);
+    const dAmount = Number(discountAmount || 0);
+    if (dAmount > tFees) {
+      error("Discount cannot exceed total course fees");
+      return;
+    }
+    const effectiveTotalFees = tFees - dAmount;
     const aFees = Number(admissionFees);
+    const lateAmt = hasLateFees ? Number(lateFeesAmount || 0) : 0;
+    const finalTotalFees = effectiveTotalFees + lateAmt;
 
     if (isNaN(tFees) || tFees <= 0) {
       error("Total course fee must be greater than zero.");
@@ -178,7 +205,7 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
       return;
     }
 
-    if (aFees > tFees) {
+    if (aFees > finalTotalFees) {
       error("Admission fees paid cannot exceed total course fees.");
       return;
     }
@@ -187,7 +214,7 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
     const uTotal = hasUniversity ? Number(universityTotalFees) || 0 : 0;
     const uPaid = hasUniversity ? Number(universityAdmissionFees) || 0 : 0;
 
-    if (hasUniversity && uTotal > tFees) {
+    if (hasUniversity && uTotal > finalTotalFees) {
       error("University fees cannot exceed total course fees.");
       return;
     }
@@ -197,7 +224,7 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
       return;
     }
 
-    const institutePortion = tFees - uTotal;
+    const institutePortion = finalTotalFees - uTotal;
 
     if (hasUniversity && (aFees - uPaid) > institutePortion) {
       error("Institute payment exceeds institute portion. Please check amounts.");
@@ -205,20 +232,6 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
     }
 
     const instituteAmountReceived = aFees - (hasUniversity ? uPaid : 0);
-
-    // DEBUG console.logs as requested
-    console.log("DEBUG admission_fees_paid:", aFees);
-    console.log("DEBUG university_fee_paid_now:", hasUniversity ? uPaid : 0);
-    console.log("DEBUG total_fees:", tFees);
-    console.log("DEBUG university_total_fees:", hasUniversity ? uTotal : 0);
-    console.log("DEBUG institute_portion:", institutePortion);
-    console.log(
-      "DEBUG payments being created:",
-      "institute:",
-      instituteAmountReceived,
-      "university:",
-      hasUniversity ? uPaid : 0
-    );
 
     setSubmitting(true);
 
@@ -232,7 +245,11 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
       course_type: courseType,
       batch_name: batchName,
       batch_start_date: batchStartDate,
-      total_fees: tFees,
+      total_fees: finalTotalFees,
+      original_fees: tFees,
+      discount_amount: dAmount,
+      discount_percent: Number(discountPercent || 0),
+      remarks: remarks.trim(),
       admission_fees: aFees,
       payment_mode: paymentMode,
       payment_note: paymentNote,
@@ -245,6 +262,28 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
       mother_name: motherName,
       session: isUniversityCourse ? session : undefined,
     });
+
+    if (res.success && res.student && db && instituteId) {
+      if (hasLateFees && lateAmt > 0) {
+        try {
+          const lateFeesPaymentRef = doc(collection(db, `institutes/${instituteId}/payments`));
+          await setDoc(lateFeesPaymentRef, {
+            id: lateFeesPaymentRef.id,
+            student_id: res.student.id,
+            amount: lateAmt,
+            mode: paymentMode,
+            date: admissionDate || getTodayDateString(),
+            type: "Late Fee",
+            payment_for: "Late Fees",
+            university_name: "",
+            note: lateFeesReason.trim() || "Late admission fees",
+            timestamp: serverTimestamp(),
+          });
+        } catch (err) {
+          console.error("Failed to record late fee payment:", err);
+        }
+      }
+    }
 
     setSubmitting(false);
 
@@ -277,11 +316,15 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
     }
   };
 
-  // If enrollment succeeded, render congratulations & receipt trigger screen
+  const dAmount = Number(discountAmount || 0);
+  const effectiveTotalFees = Number(totalFees || 0) - dAmount;
+  const totalWithLateFees = effectiveTotalFees + (hasLateFees ? Number(lateFeesAmount || 0) : 0);
+  const remainingBalance = totalWithLateFees - Number(admissionFees || 0);
+
   if (enrolledStudent && config) {
     return (
       <div className="max-w-xl mx-auto py-12 px-4 animate-in zoom-in-95 duration-200">
-        <div className="bg-slate-900 border border-teal-500/30 rounded-3xl p-8 text-center shadow-2xl relative overflow-hidden">
+        <div className="bg-slate-900 border border-teal-500/30 rounded-2xl p-8 text-center shadow-2xl relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-teal-400 via-emerald-400 to-teal-500" />
 
           <div className="w-16 h-16 rounded-2xl bg-teal-500/10 border border-teal-500/30 text-teal-400 flex items-center justify-center mx-auto mb-4 shadow-xl shadow-teal-500/20">
@@ -359,7 +402,6 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
           </button>
         </div>
 
-        {/* Official Receipt Modal */}
         {initialPayment && (
           <ReceiptModal
             isOpen={isReceiptModalOpen}
@@ -374,14 +416,14 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-200">
+    <div className="w-full space-y-8 animate-in fade-in duration-200">
       {/* Title */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-800">
         <div>
-          <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            <UserPlus className="w-5 h-5 text-teal-400" /> New Admission Enrollment
+          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+            <UserPlus className="w-6 h-6 text-teal-400" /> New Admission Enrollment
           </h1>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-xs text-slate-400 mt-1">
             Atomically generates next registration number under prefix:{" "}
             <span className="font-mono text-teal-300 font-bold">{config?.reg_prefix}</span>
           </p>
@@ -395,16 +437,21 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
         )}
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-8">
         {/* Section 1: Student Personal Details */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-teal-400 mb-4 flex items-center gap-2">
-            <Users className="w-4 h-4" /> Student Personal Information
-          </h3>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 shadow-xl">
+          <div className="flex items-center gap-3 mb-5 pb-4 border-b border-slate-800">
+            <div className="w-8 h-8 rounded-lg bg-teal-500/10 border border-teal-500/30 flex items-center justify-center">
+              <Users className="w-4 h-4 text-teal-400" />
+            </div>
+            <h2 className="text-sm font-semibold text-white uppercase tracking-wider">
+              Student Personal Information
+            </h2>
+          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-5">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                 Full Name *
               </label>
               <input
@@ -413,16 +460,16 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Rahul Sharma"
-                className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none transition"
+                className="w-full bg-slate-800 border border-slate-700 focus:border-teal-500 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none transition"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                 Mobile Phone (10 digits) *
               </label>
               <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-mono text-slate-500">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-mono text-slate-500">
                   +91
                 </span>
                 <input
@@ -432,13 +479,13 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
                   value={phone}
                   onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))}
                   placeholder="9826012345"
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl pl-12 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none transition font-mono"
+                  className="w-full bg-slate-800 border border-slate-700 focus:border-teal-500 rounded-xl pl-12 pr-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none transition font-mono"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                 Email Address (Optional)
               </label>
               <input
@@ -446,24 +493,24 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="student@example.com"
-                className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none transition"
+                className="w-full bg-slate-800 border border-slate-700 focus:border-teal-500 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none transition"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                 Date of Birth (Optional)
               </label>
               <input
                 type="date"
                 value={dob}
                 onChange={(e) => setDob(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none transition"
+                className="w-full bg-slate-800 border border-slate-700 focus:border-teal-500 rounded-xl px-4 py-3 text-sm text-white focus:outline-none transition"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                 Father's Name (Optional)
               </label>
               <input
@@ -471,12 +518,12 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
                 value={fatherName}
                 onChange={(e) => setFatherName(e.target.value)}
                 placeholder="e.g. Ramesh Sharma"
-                className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none transition"
+                className="w-full bg-slate-800 border border-slate-700 focus:border-teal-500 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none transition"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                 Mother's Name (Optional)
               </label>
               <input
@@ -484,12 +531,12 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
                 value={motherName}
                 onChange={(e) => setMotherName(e.target.value)}
                 placeholder="e.g. Sunita Sharma"
-                className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none transition"
+                className="w-full bg-slate-800 border border-slate-700 focus:border-teal-500 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none transition"
               />
             </div>
 
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+            <div className="col-span-2">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                 Residential Address (Optional)
               </label>
               <input
@@ -497,28 +544,33 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
                 placeholder="Street address, colony, city, state"
-                className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none transition"
+                className="w-full bg-slate-800 border border-slate-700 focus:border-teal-500 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none transition"
               />
             </div>
           </div>
         </div>
 
         {/* Section 2: Course & Batch Assignment */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-teal-400 mb-4 flex items-center gap-2">
-            <BookOpen className="w-4 h-4" /> Course & Batch Assignment
-          </h3>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 shadow-xl">
+          <div className="flex items-center gap-3 mb-5 pb-4 border-b border-slate-800">
+            <div className="w-8 h-8 rounded-lg bg-teal-500/10 border border-teal-500/30 flex items-center justify-center">
+              <BookOpen className="w-4 h-4 text-teal-400" />
+            </div>
+            <h2 className="text-sm font-semibold text-white uppercase tracking-wider">
+              Course & Batch Assignment
+            </h2>
+          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-5">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                 Selected Course *
               </label>
               <select
                 required
                 value={courseType}
                 onChange={(e) => handleCourseChange(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none transition"
+                className="w-full bg-slate-800 border border-slate-700 focus:border-teal-500 rounded-xl px-4 py-3 text-sm text-white focus:outline-none transition"
               >
                 {activeCourses.length === 0 ? (
                   <option value="">No active courses found (add in Settings)</option>
@@ -533,14 +585,14 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                 Allocated Batch *
               </label>
               <select
                 required
                 value={batchName}
                 onChange={(e) => setBatchName(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none transition"
+                className="w-full bg-slate-800 border border-slate-700 focus:border-teal-500 rounded-xl px-4 py-3 text-sm text-white focus:outline-none transition"
               >
                 {activeBatches.length === 0 ? (
                   <option value="">No active batches found (add in Settings)</option>
@@ -555,14 +607,14 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
             </div>
 
             {selectedCourseObj?.is_university_course && (
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+              <div className="col-span-2">
+                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                   Session *
                 </label>
                 <select
                   value={session}
                   onChange={(e) => setSession(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none transition"
+                  className="w-full bg-slate-800 border border-slate-700 focus:border-teal-500 rounded-xl px-4 py-3 text-sm text-white focus:outline-none transition"
                   required
                 >
                   <option value="">-- Select Session --</option>
@@ -583,7 +635,7 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
             )}
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                 Admission Date
               </label>
               <input
@@ -591,12 +643,12 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
                 required
                 value={admissionDate}
                 onChange={(e) => setAdmissionDate(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none transition"
+                className="w-full bg-slate-800 border border-slate-700 focus:border-teal-500 rounded-xl px-4 py-3 text-sm text-white focus:outline-none transition"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                 Batch Start Date
               </label>
               <input
@@ -604,27 +656,27 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
                 required
                 value={batchStartDate}
                 onChange={(e) => setBatchStartDate(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none transition"
+                className="w-full bg-slate-800 border border-slate-700 focus:border-teal-500 rounded-xl px-4 py-3 text-sm text-white focus:outline-none transition"
               />
             </div>
           </div>
         </div>
 
-        {/* Section: University Affiliation (Optional) - only visible when selected course has is_university_course === true */}
+        {/* Section: University Affiliation (Optional) */}
         {isUniversityCourse && (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl animate-in fade-in duration-200">
-            <div className="mb-4">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-teal-400 flex items-center gap-2">
-                <span>🏛️</span> UNIVERSITY AFFILIATION (OPTIONAL)
-              </h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Only for DCA, PGDCA or university-affiliated courses
-              </p>
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 shadow-xl animate-in fade-in duration-200">
+            <div className="flex items-center gap-3 mb-5 pb-4 border-b border-slate-800">
+              <div className="w-8 h-8 rounded-lg bg-teal-500/10 border border-teal-500/30 flex items-center justify-center">
+                <Building2 className="w-4 h-4 text-teal-400" />
+              </div>
+              <h2 className="text-sm font-semibold text-white uppercase tracking-wider">
+                University Affiliation (Optional)
+              </h2>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+            <div className="grid grid-cols-2 gap-5">
+              <div className="col-span-2">
+                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                   Affiliated University
                 </label>
                 <select
@@ -636,7 +688,7 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
                       setUniversityAdmissionFees("");
                     }
                   }}
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none transition"
+                  className="w-full bg-slate-800 border border-slate-700 focus:border-teal-500 rounded-xl px-4 py-3 text-sm text-white focus:outline-none transition"
                 >
                   <option value="">-- Not Applicable --</option>
                   {activeUniversities.map((u) => (
@@ -650,7 +702,7 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
               {affiliatedUniversity && (
                 <>
                   <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                    <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                       University Fees (₹) (Optional)
                     </label>
                     <input
@@ -661,12 +713,12 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
                         setUniversityTotalFees(e.target.value === "" ? "" : Number(e.target.value))
                       }
                       placeholder="0"
-                      className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-amber-300 font-mono placeholder-slate-500 focus:outline-none transition"
+                      className="w-full bg-slate-800 border border-slate-700 focus:border-teal-500 rounded-xl px-4 py-3 text-sm text-amber-300 font-mono placeholder-slate-500 focus:outline-none transition"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                    <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                       University Fee Paid Now (₹) (Optional)
                     </label>
                     <input
@@ -678,14 +730,14 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
                         setUniversityAdmissionFees(e.target.value === "" ? "" : Number(e.target.value))
                       }
                       placeholder="0"
-                      className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-amber-300 font-mono placeholder-slate-500 focus:outline-none transition"
+                      className="w-full bg-slate-800 border border-slate-700 focus:border-teal-500 rounded-xl px-4 py-3 text-sm text-amber-300 font-mono placeholder-slate-500 focus:outline-none transition"
                     />
                   </div>
                 </>
               )}
 
               {affiliatedUniversity && (
-                <div className="sm:col-span-3 mt-1 p-3 rounded-xl bg-slate-950 border border-slate-800 flex justify-between items-center text-xs">
+                <div className="col-span-2 p-3.5 rounded-xl bg-slate-800 border border-slate-700 flex justify-between items-center text-xs">
                   <span className="text-slate-400 font-medium">Institute Fee (Auto):</span>
                   <span className="font-mono font-bold text-teal-300 text-sm">
                     {formatCurrency(Math.max(0, Number(totalFees || 0) - Number(universityTotalFees || 0)))}
@@ -697,14 +749,145 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
         )}
 
         {/* Section 3: Fees & Initial Payment */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-teal-400 mb-4 flex items-center gap-2">
-            <CreditCard className="w-4 h-4" /> Fee Structure & Initial Collection
-          </h3>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 shadow-xl">
+          <div className="flex items-center gap-3 mb-5 pb-4 border-b border-slate-800">
+            <div className="w-8 h-8 rounded-lg bg-teal-500/10 border border-teal-500/30 flex items-center justify-center">
+              <CreditCard className="w-4 h-4 text-teal-400" />
+            </div>
+            <h2 className="text-sm font-semibold text-white uppercase tracking-wider">
+              Fee Structure & Initial Collection
+            </h2>
+          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+          {/* Late Fees & Discount Side by Side */}
+          <div className="col-span-full">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              
+              {/* LEFT — Late Fees */}
+              <div className="bg-rose-500/5 border border-rose-500/20 rounded-xl p-4 flex flex-col justify-between">
+                <div>
+                  {/* Toggle */}
+                  <div className="flex items-center gap-3 mb-2">
+                    <div
+                      onClick={() => setHasLateFees(!hasLateFees)}
+                      className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer ${
+                        hasLateFees ? "bg-rose-500" : "bg-slate-700"
+                      }`}
+                    >
+                      <div
+                        className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                          hasLateFees ? "translate-x-5 left-0.5" : "left-0.5"
+                        }`}
+                      />
+                    </div>
+                    <span className="text-sm font-semibold text-rose-300">
+                      Add Late Fees
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      (For delayed admissions)
+                    </span>
+                  </div>
+
+                  {/* Fields — only when toggle ON */}
+                  {hasLateFees && (
+                    <div className="space-y-3 mt-3 pt-3 border-t border-rose-500/20">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Late Fees Amount (₹)</label>
+                        <input
+                          type="number"
+                          value={lateFeesAmount}
+                          onChange={(e) => setLateFeesAmount(e.target.value === "" ? "" : Number(e.target.value))}
+                          placeholder="e.g. 500"
+                          className="w-full bg-slate-800 border border-rose-500/30 focus:border-rose-400 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Reason (Optional)</label>
+                        <input
+                          type="text"
+                          value={lateFeesReason}
+                          onChange={(e) => setLateFeesReason(e.target.value)}
+                          placeholder="e.g. Admission after last date"
+                          className="w-full bg-slate-800 border border-slate-700 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {hasLateFees && Number(lateFeesAmount || 0) > 0 && (
+                  <div className="bg-slate-800/60 rounded-lg p-2.5 text-[11px] text-slate-400 mt-3">
+                    <span className="text-white">Late fees ₹{Number(lateFeesAmount).toLocaleString()}</span> added.
+                  </div>
+                )}
+              </div>
+
+              {/* RIGHT — Discount */}
+              <div className="bg-violet-500/5 border border-violet-500/20 rounded-xl p-4 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Tag className="w-4 h-4 text-violet-400" />
+                    <span className="text-sm font-semibold text-violet-300">
+                      Discount (Optional)
+                    </span>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Amount (₹)</label>
+                        <input
+                          type="number"
+                          value={discountAmount}
+                          onChange={(e) => {
+                            const amount = e.target.value === "" ? "" : Number(e.target.value);
+                            const tFees = Number(totalFees) || 0;
+                            const percent = amount !== "" && tFees > 0 ? Number(((Number(amount) / tFees) * 100).toFixed(2)) : "";
+                            setDiscountAmount(amount);
+                            setDiscountPercent(percent);
+                          }}
+                          placeholder="e.g. 1000"
+                          min="0"
+                          max={Number(totalFees) || undefined}
+                          className="w-full bg-slate-800 border border-violet-500/30 focus:border-violet-400 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Percent (%)</label>
+                        <input
+                          type="number"
+                          value={discountPercent}
+                          onChange={(e) => {
+                            const percent = e.target.value === "" ? "" : Number(e.target.value);
+                            const tFees = Number(totalFees) || 0;
+                            const amount = percent !== "" && tFees > 0 ? Number(((Number(percent) / 100) * tFees).toFixed(0)) : "";
+                            setDiscountPercent(percent);
+                            setDiscountAmount(amount);
+                          }}
+                          placeholder="e.g. 10"
+                          min="0"
+                          max="100"
+                          className="w-full bg-slate-800 border border-violet-500/30 focus:border-violet-400 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {Number(discountAmount || 0) > 0 && (
+                  <div className="text-xs text-violet-300 bg-slate-800/60 rounded-lg px-3 py-2 mt-3 flex justify-between items-center">
+                    <span>After Discount:</span>
+                    <span className="font-semibold font-mono">₹{(Number(totalFees || 0) - Number(discountAmount || 0)).toLocaleString()}</span>
+                  </div>
+                )}
+              </div>
+
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-5">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                 Total Course Fees (₹) *
               </label>
               <input
@@ -714,12 +897,12 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
                 value={totalFees}
                 onChange={(e) => setTotalFees(e.target.value === "" ? "" : Number(e.target.value))}
                 placeholder="e.g. 150000"
-                className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white font-mono placeholder-slate-500 focus:outline-none transition"
+                className="w-full bg-slate-800 border border-slate-700 focus:border-teal-500 rounded-xl px-4 py-3 text-sm text-white font-mono placeholder-slate-500 focus:outline-none transition"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                 Admission Fees Paid (₹) *
               </label>
               <input
@@ -729,29 +912,34 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
                 value={admissionFees}
                 onChange={(e) => setAdmissionFees(e.target.value === "" ? "" : Number(e.target.value))}
                 placeholder="e.g. 50000"
-                className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-emerald-400 font-mono placeholder-slate-500 focus:outline-none transition"
+                className="w-full bg-slate-800 border border-slate-700 focus:border-teal-500 rounded-xl px-4 py-3 text-sm text-emerald-400 font-mono placeholder-slate-500 focus:outline-none transition"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                 Remaining Balance (Auto)
               </label>
-              <div className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm font-mono font-bold text-amber-400">
-                {formatCurrency(Math.max(0, Number(totalFees || 0) - Number(admissionFees || 0)))}
+              <div className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-sm font-mono font-bold text-amber-400">
+                {formatCurrency(Math.max(0, remainingBalance))}
               </div>
+              {hasLateFees && Number(lateFeesAmount || 0) > 0 && (
+                <p className="text-xs text-slate-500 mt-1">
+                  Course: ₹{effectiveTotalFees} + Late: ₹{lateFeesAmount} = ₹{totalWithLateFees} total
+                </p>
+              )}
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-5">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                 Payment Mode
               </label>
               <select
                 value={paymentMode}
                 onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}
-                className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none transition"
+                className="w-full bg-slate-800 border border-slate-700 focus:border-teal-500 rounded-xl px-4 py-3 text-sm text-white focus:outline-none transition"
               >
                 <option value="UPI">UPI (GPay / PhonePe / Paytm)</option>
                 <option value="Cash">Cash</option>
@@ -761,7 +949,7 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                 Payment Transaction Note / Reference
               </label>
               <input
@@ -769,18 +957,39 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
                 value={paymentNote}
                 onChange={(e) => setPaymentNote(e.target.value)}
                 placeholder="e.g. UPI Ref #9482710482 or Cheque #102938"
-                className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none transition"
+                className="w-full bg-slate-800 border border-slate-700 focus:border-teal-500 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none transition"
               />
             </div>
           </div>
         </div>
 
-        {/* Buttons */}
+        {/* Remarks Section */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+          <div className="flex items-center gap-3 mb-4">
+            <FileText className="w-4 h-4 text-slate-400" />
+            <label className="text-sm font-semibold text-white">
+              Remarks
+              <span className="text-slate-500 font-normal ml-2">(Optional)</span>
+            </label>
+          </div>
+          <textarea
+            value={remarks}
+            onChange={(e) => setRemarks(e.target.value)}
+            rows={3}
+            placeholder="Any additional notes about this admission... e.g. Referred by alumni, special arrangement, scholarship details, etc."
+            className="w-full bg-slate-800 border border-slate-700 focus:border-teal-500 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none resize-none"
+          />
+          <p className="text-xs text-slate-500 mt-2">
+            This note is for internal reference only.
+          </p>
+        </div>
+
+        {/* Full width submit button */}
         <div className="flex items-center justify-end gap-3 pt-2">
           <button
             type="button"
             onClick={handleReset}
-            className="px-5 py-2.5 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-800 transition"
+            className="px-6 py-4 rounded-xl text-sm font-semibold text-slate-400 hover:text-white hover:bg-slate-800 transition"
           >
             Reset Form
           </button>
@@ -788,16 +997,16 @@ export const AdmissionForm: React.FC<AdmissionFormProps> = ({
           <button
             type="submit"
             disabled={submitting}
-            className="px-7 py-3 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-semibold text-sm transition shadow-lg shadow-teal-500/20 disabled:opacity-50 flex items-center gap-2"
+            className="w-full py-4 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-semibold text-base transition shadow-xl shadow-teal-500/20 disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {submitting ? (
               <span className="inline-flex items-center gap-2">
-                <span className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                <span className="w-5 h-5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
                 Generating Reg No...
               </span>
             ) : (
               <>
-                <UserPlus className="w-4 h-4" /> Complete Admission
+                <UserPlus className="w-5 h-5" /> Complete Admission
               </>
             )}
           </button>

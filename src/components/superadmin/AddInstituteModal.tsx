@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { X, Building2, Shield, KeyRound, Check, Sparkles, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
-import { InstituteConfig, InstituteFeatures } from "../../types";
+import { X, Building2, Shield, KeyRound, Check, Sparkles, AlertTriangle, CheckCircle2, XCircle, Clock } from "lucide-react";
+import { InstituteConfig, InstituteFeatures, PLAN_PRICING, DURATION_DAYS } from "../../types";
 import { isValidEmail, isValidRegPrefix } from "../../utils/validators";
 import { useToast } from "../shared/Toast";
 import { useAuth } from "../../contexts/AuthContext";
@@ -28,7 +28,7 @@ export const AddInstituteModal: React.FC<AddInstituteModalProps> = ({
   onSuccess,
 }) => {
   const { success, error, info } = useToast();
-  const { allInstitutes } = useAuth();
+  const { user, allInstitutes } = useAuth();
 
   const [name, setName] = useState("");
   const [regPrefix, setRegPrefix] = useState("");
@@ -38,11 +38,12 @@ export const AddInstituteModal: React.FC<AddInstituteModalProps> = ({
   const [city, setCity] = useState("");
   const [address, setAddress] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
-  const [plan, setPlan] = useState<PlanType>("standard");
+  const [plan, setPlan] = useState<PlanType>("trial");
+  const [duration, setDuration] = useState<"trial" | "monthly" | "quarterly" | "half-yearly" | "annual">("trial");
   const [submitting, setSubmitting] = useState(false);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
 
-  const [features, setFeatures] = useState<InstituteFeatures>(getPlanFeatures("standard"));
+  const [features, setFeatures] = useState<InstituteFeatures>(getPlanFeatures("trial"));
 
   if (!isOpen) return null;
 
@@ -54,6 +55,11 @@ export const AddInstituteModal: React.FC<AddInstituteModalProps> = ({
   const handlePlanChange = (newPlan: PlanType) => {
     setPlan(newPlan);
     setFeatures(getPlanFeatures(newPlan));
+    if (newPlan === "trial") {
+      setDuration("trial");
+    } else if (duration === "trial") {
+      setDuration("monthly");
+    }
   };
 
   const validateEmailPlanLimit = async (
@@ -125,7 +131,12 @@ export const AddInstituteModal: React.FC<AddInstituteModalProps> = ({
 
     setSubmitting(true);
     const instituteId = `inst_${regPrefix.toLowerCase()}_${Date.now().toString(36)}`;
-    const today = new Date().toISOString().split("T")[0];
+    const startDateObj = new Date();
+    const startDateStr = startDateObj.toISOString().split("T")[0];
+    const days = DURATION_DAYS[duration] || 30;
+    const endDateObj = new Date(startDateObj.getTime() + days * 24 * 60 * 60 * 1000);
+    const endDateStr = endDateObj.toISOString().split("T")[0];
+    const amount = (PLAN_PRICING as any)[plan]?.[duration] || 0;
 
     const newConfig: InstituteConfig = {
       institute_id: instituteId,
@@ -140,8 +151,17 @@ export const AddInstituteModal: React.FC<AddInstituteModalProps> = ({
       admin_password: password.trim(),
       status: "active",
       plan,
-      created_date: today,
+      created_date: startDateStr,
+      subscription_start_date: startDateStr,
+      subscription_end_date: endDateStr,
+      subscription_duration: duration,
+      subscription_expired: false,
       features,
+      ...(plan === "trial" ? {
+        trial_start_date: startDateStr,
+        trial_end_date: endDateStr,
+        trial_expired: false,
+      } : {}),
     };
 
     try {
@@ -161,6 +181,26 @@ export const AddInstituteModal: React.FC<AddInstituteModalProps> = ({
             config: cleanFirestoreData(newConfig),
             created_timestamp: serverTimestamp(),
           });
+
+          if (amount > 0) {
+            const paymentId = `subpay_${Date.now().toString(36)}`;
+            await setDoc(doc(db, "subscription_payments", paymentId), cleanFirestoreData({
+              id: paymentId,
+              institute_id: instituteId,
+              institute_name: name.trim(),
+              amount,
+              payment_mode: "Cash",
+              payment_date: startDateStr,
+              duration,
+              duration_days: days,
+              plan,
+              previous_end_date: startDateStr,
+              new_end_date: endDateStr,
+              note: "Initial subscription payment on creation",
+              recorded_by: user?.email || "superadmin",
+              created_timestamp: serverTimestamp(),
+            }));
+          }
 
           // Initialize default course and batch in Firestore
           await setDoc(doc(db, "institutes", instituteId, "courses", "c_default"), {
@@ -287,7 +327,7 @@ export const AddInstituteModal: React.FC<AddInstituteModalProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
                 Phone Number
@@ -313,21 +353,75 @@ export const AddInstituteModal: React.FC<AddInstituteModalProps> = ({
                 className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none transition"
               />
             </div>
+          </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-                Subscription Plan
+                Subscription Plan *
               </label>
               <select
                 value={plan}
                 onChange={(e) => handlePlanChange(e.target.value as PlanType)}
                 className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none transition"
               >
+                <option value="trial">🎯 Trial (Free)</option>
                 <option value="standard">Standard — ₹499/month</option>
                 <option value="pro">Pro — ₹999/month</option>
               </select>
             </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                Subscription Duration *
+              </label>
+              {plan === "trial" ? (
+                <input
+                  type="text"
+                  disabled
+                  value="15 Days Free (Trial)"
+                  className="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-teal-400 font-medium cursor-not-allowed"
+                />
+              ) : (
+                <select
+                  value={duration}
+                  onChange={(e) => setDuration(e.target.value as any)}
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none transition"
+                >
+                  <option value="monthly">1 Month (₹{PLAN_PRICING[plan].monthly})</option>
+                  <option value="quarterly">3 Months — Quarterly (₹{PLAN_PRICING[plan].quarterly})</option>
+                  <option value="half-yearly">6 Months — Half-Yearly (₹{PLAN_PRICING[plan]["half-yearly"]})</option>
+                  <option value="annual">1 Year — Annual (₹{PLAN_PRICING[plan].annual}) ⭐ Recommended</option>
+                </select>
+              )}
+            </div>
           </div>
+
+          {/* Auto-calculated info box */}
+          {(() => {
+            const startDate = new Date();
+            const days = DURATION_DAYS[duration] || 30;
+            const endDate = new Date(startDate.getTime() + days * 24 * 60 * 60 * 1000);
+            const price = (PLAN_PRICING as any)[plan]?.[duration] || 0;
+            return (
+              <div className="bg-slate-800/80 border border-slate-700 rounded-xl p-4 mt-3">
+                <div className="flex justify-between text-xs">
+                  <span className="text-slate-400">Start Date:</span>
+                  <span className="text-white font-mono">{startDate.toLocaleDateString("en-IN")}</span>
+                </div>
+                <div className="flex justify-between text-xs mt-2">
+                  <span className="text-slate-400">End Date:</span>
+                  <span className="text-amber-400 font-medium font-mono">{endDate.toLocaleDateString("en-IN")} ({days} days)</span>
+                </div>
+                <div className="flex justify-between text-xs mt-2">
+                  <span className="text-slate-400">Amount:</span>
+                  <span className="text-teal-400 font-bold text-sm">
+                    {price === 0 ? "FREE (Trial)" : `₹${price.toLocaleString()}`}
+                  </span>
+                </div>
+              </div>
+            );
+          })()}
 
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">

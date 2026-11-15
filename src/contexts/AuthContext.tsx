@@ -14,7 +14,7 @@ import {
   onAuthStateChanged,
   User as FirebaseUser,
 } from "firebase/auth";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, updateDoc, doc } from "firebase/firestore";
 import { InstituteConfig } from "../types";
 
 interface UserProfile {
@@ -96,6 +96,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  const checkSubscriptionExpiry = async (
+    inst: InstituteConfig
+  ): Promise<InstituteConfig> => {
+    const expiryDateStr = inst.subscription_end_date || inst.trial_end_date;
+    if (!expiryDateStr) return inst;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const endDate = new Date(expiryDateStr);
+    endDate.setHours(0, 0, 0, 0);
+
+    const isExpired = today > endDate;
+
+    if (isExpired && inst.status !== "suspended") {
+      if (isFirebaseConfigured && db) {
+        try {
+          await updateDoc(
+            doc(db, "institutes", inst.institute_id),
+            {
+              "config.status": "suspended",
+              "config.subscription_expired": true,
+              "config.trial_expired": inst.plan === "trial" ? true : (inst.trial_expired ?? false)
+            }
+          );
+        } catch (e) {
+          console.warn("Auto-suspend failed:", e);
+        }
+      }
+      return {
+        ...inst,
+        status: "suspended",
+        subscription_expired: true,
+        trial_expired: inst.plan === "trial" ? true : inst.trial_expired
+      };
+    }
+
+    return inst;
+  };
+
   const resolveUserInstitute = useCallback(
     async (email: string | null, institutesList?: InstituteConfig[]) => {
       if (!email) {
@@ -128,30 +168,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Check plan limits:
       if (matched.length > 1) {
-        // Multiple institutes found
-        // Check if ALL are on Pro plan
         const allPro = matched.every(
           (inst) => inst.plan === "pro"
         );
         
         if (!allPro) {
-          // Find non-pro institutes
           const nonProInstitutes = matched.filter(
             (inst) => inst.plan !== "pro"
           );
           
-          // Only allow the first institute
-          // Show upgrade notice for rest
-          const firstInst = matched[0];
+          let firstInst = matched[0];
+          firstInst = await checkSubscriptionExpiry(firstInst);
           setMyInstitutes([firstInst]);
           setInstituteId(firstInst.institute_id);
           setInstituteConfig(firstInst);
-          setIsSuspended(
-            firstInst.status === "suspended"
-          );
+          setIsSuspended(firstInst.status === "suspended");
           setNeedsInstituteSelection(false);
           
-          // Store upgrade notice
           setPlanUpgradeNotice({
             show: true,
             blockedCount: matched.length - 1,
@@ -160,19 +193,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
         
-        // All Pro — show selector normally
-        if (matched.length <= 5) {
-          setMyInstitutes(matched);
+        const processedMatched = await Promise.all(
+          matched.map(async (inst) => await checkSubscriptionExpiry(inst))
+        );
+
+        if (processedMatched.length <= 5) {
+          setMyInstitutes(processedMatched);
           setNeedsInstituteSelection(true);
         } else {
-          // More than 5 — take first 5 only
-          setMyInstitutes(matched.slice(0, 5));
+          setMyInstitutes(processedMatched.slice(0, 5));
           setNeedsInstituteSelection(true);
         }
         
       } else if (matched.length === 1) {
-        // Single institute — no plan check needed
-        const inst = matched[0];
+        let inst = matched[0];
+        inst = await checkSubscriptionExpiry(inst);
         setMyInstitutes([inst]);
         setInstituteId(inst.institute_id);
         setInstituteConfig(inst);
@@ -304,14 +339,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setPlanUpgradeNotice({ show: false, blockedCount: 0, message: "" });
   };
 
-  const selectInstitute = (instId: string) => {
+  const selectInstitute = async (instId: string) => {
     const found = myInstitutes.find((i) => i.institute_id === instId);
     if (found) {
-      setSelectedInstituteId(found.institute_id);
-      setInstituteId(found.institute_id);
-      setInstituteConfig(found);
+      const checked = await checkSubscriptionExpiry(found);
+      setSelectedInstituteId(checked.institute_id);
+      setInstituteId(checked.institute_id);
+      setInstituteConfig(checked);
       setNeedsInstituteSelection(false);
-      setIsSuspended(found.status === "suspended");
+      setIsSuspended(checked.status === "suspended");
     }
   };
 

@@ -8,6 +8,7 @@ import {
   Payment,
   StudentStatus,
   PaymentMode,
+  CertificateStatus,
 } from "../../types";
 import {
   formatCurrency,
@@ -36,6 +37,8 @@ import {
   ExternalLink,
   GraduationCap,
   Building2,
+  X,
+  Tag,
 } from "lucide-react";
 
 interface StudentDetailProps {
@@ -51,6 +54,7 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
     courses,
     batches,
     universities,
+    sessions,
     updateStudent,
     updateStudentStatus,
     issueCertificate,
@@ -87,15 +91,31 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
   const [statusNote, setStatusNote] = useState("");
   const [dropoutReason, setDropoutReason] = useState("");
 
-  // Edit Profile form state
+  // Edit Profile form state (Tabs: personal, course, university)
+  const [activeEditTab, setActiveEditTab] = useState<"personal" | "course" | "university">("personal");
+
   const [editName, setEditName] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editEmail, setEditEmail] = useState("");
-  const [editAddress, setEditAddress] = useState("");
+  const [editDob, setEditDob] = useState("");
   const [editFatherName, setEditFatherName] = useState("");
   const [editMotherName, setEditMotherName] = useState("");
+  const [editAddress, setEditAddress] = useState("");
+  const [editAdmissionDate, setEditAdmissionDate] = useState("");
+  const [editStatus, setEditStatus] = useState<StudentStatus>("Active");
+
   const [editCourse, setEditCourse] = useState("");
   const [editBatch, setEditBatch] = useState("");
+  const [editSession, setEditSession] = useState("");
+  const [editBatchStartDate, setEditBatchStartDate] = useState("");
+  const [editTotalFees, setEditTotalFees] = useState<number | "">(0);
+  const [editCertificateStatus, setEditCertificateStatus] = useState<CertificateStatus>("Not Issued");
+
+  const [editAffiliatedUniversity, setEditAffiliatedUniversity] = useState("");
+  const [editUniversityTotalFees, setEditUniversityTotalFees] = useState<number | "">(0);
+  const [editDiscountAmount, setEditDiscountAmount] = useState<number | "">(0);
+  const [editDiscountPercent, setEditDiscountPercent] = useState<number | "">(0);
+  const [editRemarks, setEditRemarks] = useState("");
 
   if (!student || !config) {
     return (
@@ -142,7 +162,6 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
       : 0;
 
   // Payment Mode Breakdown
-  // A) "INSTITUTE PAYMENTS BREAKDOWN": Group only payments where university_name is empty/null
   const instituteModeBreakdown: Record<string, number> = {};
   studentPayments
     .filter((p) => !p.university_name || p.university_name === "")
@@ -151,7 +170,6 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
         (instituteModeBreakdown[p.mode] || 0) + Number(p.amount || 0);
     });
 
-  // B) "UNIVERSITY PAYMENTS BREAKDOWN" (only show if any university payments exist):
   const universityModeBreakdown: Record<string, number> = {};
   studentPayments
     .filter((p) => p.university_name && p.university_name !== "")
@@ -161,30 +179,71 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
     });
 
   const handleOpenEdit = () => {
+    setActiveEditTab("personal");
     setEditName(student.name);
     setEditPhone(student.phone);
     setEditEmail(student.email || "");
-    setEditAddress(student.address || "");
+    setEditDob(student.dob || "");
     setEditFatherName(student.father_name || "");
     setEditMotherName(student.mother_name || "");
+    setEditAddress(student.address || "");
+    setEditAdmissionDate(student.admission_date || "");
+    setEditStatus(student.status);
+    setEditRemarks(student.remarks || "");
+
     setEditCourse(student.course_type);
     setEditBatch(student.batch_name);
+    setEditSession(student.session || "");
+    setEditBatchStartDate(student.batch_start_date || "");
+    setEditTotalFees(student.original_fees || student.total_fees || 0);
+    setEditDiscountAmount(student.discount_amount || 0);
+    setEditDiscountPercent(student.discount_percent || 0);
+    setEditCertificateStatus(student.certificate_status || "Not Issued");
+
+    setEditAffiliatedUniversity(student.affiliated_university || "");
+    setEditUniversityTotalFees(student.university_total_fees || 0);
+
     setIsEditProfileModalOpen(true);
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    const originalFeesVal = Number(editTotalFees) || 0;
+    const dAmount = Number(editDiscountAmount || 0);
+    if (dAmount > originalFeesVal) {
+      error("Discount cannot exceed total course fees");
+      return;
+    }
+    const effectiveTotal = originalFeesVal - dAmount;
+    const newUnivFees = Number(editUniversityTotalFees) || 0;
+    const currentCollected = studentPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+    const newRemainingFees = Math.max(0, effectiveTotal - currentCollected);
+
     await updateStudent(student.id, {
       name: editName.trim(),
       phone: editPhone.trim(),
       email: editEmail.trim(),
-      address: editAddress.trim(),
+      dob: editDob,
       father_name: editFatherName.trim(),
       mother_name: editMotherName.trim(),
+      address: editAddress.trim(),
+      admission_date: editAdmissionDate,
+      status: editStatus,
       course_type: editCourse,
       batch_name: editBatch,
+      session: editSession,
+      batch_start_date: editBatchStartDate,
+      total_fees: effectiveTotal,
+      original_fees: originalFeesVal,
+      discount_amount: dAmount,
+      discount_percent: Number(editDiscountPercent || 0),
+      remarks: editRemarks.trim(),
+      remaining_fees: newRemainingFees,
+      certificate_status: editCertificateStatus,
+      affiliated_university: editAffiliatedUniversity.trim(),
+      university_total_fees: newUnivFees,
     });
-    success("Student profile updated.");
+    success("Student profile and fees updated successfully.");
     setIsEditProfileModalOpen(false);
   };
 
@@ -389,6 +448,41 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
                 <span className="text-amber-300 font-medium">{student.session}</span>
               </div>
             )}
+
+            {student.affiliated_university && (
+              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 sm:col-span-2">
+                <span className="text-amber-400 block text-[10px] uppercase font-semibold flex items-center gap-1">
+                  <GraduationCap className="w-3.5 h-3.5" /> Affiliated University & Fees
+                </span>
+                <div className="flex justify-between items-center mt-1">
+                  <span className="text-white font-medium">{student.affiliated_university}</span>
+                  <span className="font-mono text-amber-300 font-bold">{formatCurrency(student.university_total_fees || 0)}</span>
+                </div>
+              </div>
+            )}
+
+            {Number(student.discount_amount || 0) > 0 && (
+              <div className="p-3 rounded-xl bg-violet-500/10 border border-violet-500/20 sm:col-span-2">
+                <span className="text-violet-300 block text-[10px] uppercase font-semibold flex items-center gap-1">
+                  <Tag className="w-3.5 h-3.5" /> Course Discount Applied
+                </span>
+                <div className="flex justify-between items-center mt-1 text-xs">
+                  <span className="text-white font-medium">
+                    {student.discount_percent ? `${student.discount_percent}% off` : "Custom Discount"}
+                  </span>
+                  <span className="font-mono text-violet-300 font-bold">
+                    -{formatCurrency(student.discount_amount)}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {student.remarks && (
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 sm:col-span-2">
+                <span className="text-slate-500 block text-[10px] uppercase font-semibold">Admission Remarks</span>
+                <span className="text-slate-200 mt-0.5 block text-xs">{student.remarks}</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -402,9 +496,8 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
               <span className="text-[10px] font-mono text-slate-400">{percentPaid}% Paid</span>
             </div>
 
-            {/* Numbers - Exact Order from Specification */}
+            {/* Numbers */}
             <div className="space-y-3 mb-6">
-              {/* Row 1: Total Course Fees */}
               <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex justify-between items-center text-xs">
                 <span className="text-slate-400">Total Course Fees:</span>
                 <span className="font-mono font-bold text-white text-sm">
@@ -412,7 +505,6 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
                 </span>
               </div>
 
-              {/* Row 2: Total Fees Paid */}
               <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex justify-between items-center text-xs">
                 <span className="text-slate-400">Total Fees Paid:</span>
                 <span className="font-mono font-bold text-emerald-400 text-sm">
@@ -420,7 +512,6 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
                 </span>
               </div>
 
-              {/* Row 3: Outstanding Balance */}
               <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex justify-between items-center text-xs">
                 <span className="text-slate-400">Outstanding Balance:</span>
                 <span
@@ -432,23 +523,19 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
                 </span>
               </div>
 
-              {/* Rows 4 to 9: ONLY if student.affiliated_university is set and not empty */}
               {hasAffiliatedUniv && (
                 <>
-                  {/* Row 4: University Portion */}
                   <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex justify-between items-center text-xs">
                     <div>
                       <span className="text-amber-400 flex items-center gap-1.5 font-medium">
                         <GraduationCap className="w-3.5 h-3.5" /> University Portion:
                       </span>
-                      <span className="text-[10px] text-slate-400 block mt-0.5">(included in total fees)</span>
                     </div>
                     <span className="font-mono font-bold text-amber-400 text-sm">
                       {formatCurrency(universityTotalFees)}
                     </span>
                   </div>
 
-                  {/* Row 5: University Paid */}
                   <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex justify-between items-center text-xs">
                     <span className="text-amber-400 flex items-center gap-1.5 font-medium">
                       <GraduationCap className="w-3.5 h-3.5" /> University Paid:
@@ -458,7 +545,6 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
                     </span>
                   </div>
 
-                  {/* Row 6: University Balance */}
                   <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex justify-between items-center text-xs">
                     <span className="text-slate-400 font-medium">University Balance:</span>
                     <span
@@ -470,42 +556,31 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
                     </span>
                   </div>
 
-                  {/* Row 7: Institute Portion */}
                   <div className="p-3 rounded-xl bg-teal-500/10 border border-teal-500/20 flex justify-between items-center text-xs">
                     <div>
                       <span className="text-teal-400 flex items-center gap-1.5 font-medium">
                         <Building2 className="w-3.5 h-3.5" /> Institute Portion:
                       </span>
-                      <span className="text-[10px] text-slate-400 block mt-0.5">(total fees minus university)</span>
                     </div>
                     <span className="font-mono font-bold text-teal-400 text-sm">
                       {formatCurrency(institutePortion)}
                     </span>
                   </div>
 
-                  {/* Row 8: Institute Paid */}
                   <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800/80 flex justify-between items-center text-xs">
                     <span className="text-teal-400 flex items-center gap-1.5 font-medium">
                       <Building2 className="w-3.5 h-3.5" /> Institute Paid:
                     </span>
-                    <span
-                      className={`font-mono font-bold text-sm flex items-center gap-1 ${
-                        institutePaid > institutePortion ? "text-rose-400" : "text-teal-400"
-                      }`}
-                    >
-                      {institutePaid > institutePortion && <span title="Institute Paid exceeds portion">⚠️</span>}
+                    <span className="font-mono font-bold text-teal-400 text-sm">
                       {formatCurrency(institutePaid)}
                     </span>
                   </div>
 
-                  {/* Row 9: Institute Balance */}
                   <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex justify-between items-center text-xs">
                     <span className="text-slate-400 font-medium">Institute Balance:</span>
                     <span className="font-mono font-bold text-sm">
                       {instituteBalance < 0 ? (
-                        <span className="text-rose-400">
-                          ⚠️ Overpaid by {formatCurrency(Math.abs(instituteBalance))} — University fees may be pending
-                        </span>
+                        <span className="text-rose-400">Overpaid by {formatCurrency(Math.abs(instituteBalance))}</span>
                       ) : instituteBalance > 0 ? (
                         <span className="text-amber-400">{formatCurrency(instituteBalance)}</span>
                       ) : (
@@ -529,7 +604,6 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
 
             {/* Payment Mode breakdown */}
             <div className="space-y-3">
-              {/* INSTITUTE PAYMENTS BREAKDOWN */}
               <div>
                 <span className="text-[11px] font-semibold text-slate-300 uppercase tracking-wider block mb-2 flex items-center gap-1.5">
                   <Building2 className="w-3.5 h-3.5 text-teal-400" /> INSTITUTE PAYMENTS BREAKDOWN
@@ -550,7 +624,6 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
                 )}
               </div>
 
-              {/* UNIVERSITY PAYMENTS BREAKDOWN */}
               {universityPaid > 0 && (
                 <div className="pt-2 border-t border-slate-800/60">
                   <span className="text-[11px] font-semibold text-amber-300 uppercase tracking-wider block mb-2 flex items-center gap-1.5">
@@ -905,7 +978,6 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
                 </select>
               </div>
 
-              {/* 3. Payment For (Optional) */}
               <div>
                 <label className="block text-[11px] font-semibold text-slate-300 mb-1">
                   Payment For <span className="text-slate-500 font-normal">(Optional)</span>
@@ -926,7 +998,6 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
                 </select>
               </div>
 
-              {/* 4. University (Optional) - only visible when Payment For is selected */}
               {Boolean(payPaymentFor) && (
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-300 mb-1">
@@ -955,7 +1026,6 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
                 </div>
               )}
 
-              {/* 5. Date */}
               <div>
                 <label className="block text-[11px] font-semibold text-slate-300 mb-1">Date</label>
                 <input
@@ -1078,118 +1148,350 @@ export const StudentDetail: React.FC<StudentDetailProps> = ({ studentId, onBack 
         </div>
       )}
 
-      {/* Edit Profile Modal */}
+      {/* Edit Profile Modal (3 Tabs: Personal Info, Course & Fees, University) */}
       {isEditProfileModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl relative text-slate-100">
-            <h3 className="text-base font-bold text-white mb-4">Edit Student Profile</h3>
-            <form onSubmit={handleSaveProfile} className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Name</label>
-                  <input
-                    type="text"
-                    required
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Phone</label>
-                  <input
-                    type="tel"
-                    required
-                    value={editPhone}
-                    onChange={(e) => setEditPhone(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none"
-                  />
-                </div>
-              </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-xl w-full p-6 sm:p-8 shadow-2xl relative text-slate-100 my-8">
+            <div className="flex items-center justify-between mb-6 pb-3 border-b border-slate-800">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Edit2 className="w-5 h-5 text-teal-400" /> Edit Student Record
+              </h3>
+              <button
+                onClick={() => setIsEditProfileModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-300 mb-1">Email</label>
-                <input
-                  type="email"
-                  value={editEmail}
-                  onChange={(e) => setEditEmail(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
-                />
-              </div>
+            {/* Tabs */}
+            <div className="flex items-center gap-2 mb-6 bg-slate-950 p-1.5 rounded-2xl border border-slate-800">
+              <button
+                type="button"
+                onClick={() => setActiveEditTab("personal")}
+                className={`flex-1 py-2 px-3 rounded-xl text-xs font-semibold transition ${
+                  activeEditTab === "personal"
+                    ? "bg-teal-500 text-slate-950 shadow-md shadow-teal-500/20"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                1. Personal Info
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveEditTab("course")}
+                className={`flex-1 py-2 px-3 rounded-xl text-xs font-semibold transition ${
+                  activeEditTab === "course"
+                    ? "bg-teal-500 text-slate-950 shadow-md shadow-teal-500/20"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                2. Course & Fees
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveEditTab("university")}
+                className={`flex-1 py-2 px-3 rounded-xl text-xs font-semibold transition ${
+                  activeEditTab === "university"
+                    ? "bg-teal-500 text-slate-950 shadow-md shadow-teal-500/20"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                3. University
+              </button>
+            </div>
 
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-300 mb-1">Address</label>
-                <input
-                  type="text"
-                  value={editAddress}
-                  onChange={(e) => setEditAddress(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
-                />
-              </div>
+            <form onSubmit={handleSaveProfile} className="space-y-4">
+              {activeEditTab === "personal" && (
+                <div className="space-y-3 animate-in fade-in duration-200">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">Name *</label>
+                      <input
+                        type="text"
+                        required
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">Phone *</label>
+                      <input
+                        type="tel"
+                        required
+                        value={editPhone}
+                        onChange={(e) => setEditPhone(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none"
+                      />
+                    </div>
+                  </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Father's Name</label>
-                  <input
-                    type="text"
-                    value={editFatherName}
-                    onChange={(e) => setEditFatherName(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Mother's Name</label>
-                  <input
-                    type="text"
-                    value={editMotherName}
-                    onChange={(e) => setEditMotherName(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
-                  />
-                </div>
-              </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">Email</label>
+                      <input
+                        type="email"
+                        value={editEmail}
+                        onChange={(e) => setEditEmail(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">Date of Birth</label>
+                      <input
+                        type="date"
+                        value={editDob}
+                        onChange={(e) => setEditDob(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none font-mono"
+                      />
+                    </div>
+                  </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Course</label>
-                  <select
-                    value={editCourse}
-                    onChange={(e) => setEditCourse(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
-                  >
-                    {courses.map((c) => (
-                      <option key={c.id} value={c.name}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Batch</label>
-                  <select
-                    value={editBatch}
-                    onChange={(e) => setEditBatch(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
-                  >
-                    {batches.map((b) => (
-                      <option key={b.id} value={b.name}>
-                        {b.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">Father's Name</label>
+                      <input
+                        type="text"
+                        value={editFatherName}
+                        onChange={(e) => setEditFatherName(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">Mother's Name</label>
+                      <input
+                        type="text"
+                        value={editMotherName}
+                        onChange={(e) => setEditMotherName(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                      />
+                    </div>
+                  </div>
 
-              <div className="flex justify-end gap-2 pt-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">Residential Address</label>
+                    <textarea
+                      rows={2}
+                      value={editAddress}
+                      onChange={(e) => setEditAddress(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none resize-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">Admission Date</label>
+                      <input
+                        type="date"
+                        value={editAdmissionDate}
+                        onChange={(e) => setEditAdmissionDate(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">Status</label>
+                      <select
+                        value={editStatus}
+                        onChange={(e) => setEditStatus(e.target.value as StudentStatus)}
+                        className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none"
+                      >
+                        <option value="Active">Active</option>
+                        <option value="Completed">Completed</option>
+                        <option value="Dropped">Dropped</option>
+                        <option value="On Hold">On Hold</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">Admission Remarks</label>
+                    <textarea
+                      rows={2}
+                      value={editRemarks}
+                      onChange={(e) => setEditRemarks(e.target.value)}
+                      placeholder="Admission remarks or special notes..."
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none resize-none"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {activeEditTab === "course" && (
+                <div className="space-y-3 animate-in fade-in duration-200">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">Course *</label>
+                      <select
+                        value={editCourse}
+                        onChange={(e) => setEditCourse(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                      >
+                        {courses.map((c) => (
+                          <option key={c.id} value={c.name}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">Batch *</label>
+                      <select
+                        value={editBatch}
+                        onChange={(e) => setEditBatch(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                      >
+                        {batches.map((b) => (
+                          <option key={b.id} value={b.name}>
+                            {b.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">Session</label>
+                      <select
+                        value={editSession}
+                        onChange={(e) => setEditSession(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                      >
+                        <option value="">-- Select Session --</option>
+                        {sessions.map((s) => (
+                          <option key={s.id} value={s.name}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">Batch Start Date</label>
+                      <input
+                        type="date"
+                        value={editBatchStartDate}
+                        onChange={(e) => setEditBatchStartDate(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-teal-400 mb-1">
+                        Original Course Fees (₹) * ✏️ Editable
+                      </label>
+                      <input
+                        type="number"
+                        required
+                        min={0}
+                        value={editTotalFees}
+                        onChange={(e) => setEditTotalFees(e.target.value === "" ? "" : Number(e.target.value))}
+                        className="w-full bg-slate-950 border border-teal-500/50 focus:border-teal-500 rounded-xl px-3 py-2 text-xs text-teal-300 font-mono focus:outline-none font-bold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">Certificate Status</label>
+                      <select
+                        value={editCertificateStatus}
+                        onChange={(e) => setEditCertificateStatus(e.target.value as CertificateStatus)}
+                        className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none"
+                      >
+                        <option value="Not Issued">Not Issued</option>
+                        <option value="Issued">Issued</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="bg-violet-500/5 border border-violet-500/20 rounded-xl p-3.5 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Tag className="w-3.5 h-3.5 text-violet-400" />
+                      <span className="text-xs font-semibold text-violet-300">Discount (Optional)</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-400 mb-1">Discount Amount (₹)</label>
+                        <input
+                          type="number"
+                          value={editDiscountAmount}
+                          onChange={(e) => {
+                            const amount = e.target.value === "" ? "" : Number(e.target.value);
+                            const tFees = Number(editTotalFees) || 0;
+                            const percent = amount !== "" && tFees > 0 ? Number(((Number(amount) / tFees) * 100).toFixed(2)) : "";
+                            setEditDiscountAmount(amount);
+                            setEditDiscountPercent(percent);
+                          }}
+                          className="w-full bg-slate-950 border border-violet-500/30 focus:border-violet-400 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-400 mb-1">Discount Percent (%)</label>
+                        <input
+                          type="number"
+                          value={editDiscountPercent}
+                          onChange={(e) => {
+                            const percent = e.target.value === "" ? "" : Number(e.target.value);
+                            const tFees = Number(editTotalFees) || 0;
+                            const amount = percent !== "" && tFees > 0 ? Number(((Number(percent) / 100) * tFees).toFixed(0)) : "";
+                            setEditDiscountPercent(percent);
+                            setEditDiscountAmount(amount);
+                          }}
+                          className="w-full bg-slate-950 border border-violet-500/30 focus:border-violet-400 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeEditTab === "university" && (
+                <div className="space-y-3 animate-in fade-in duration-200">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-amber-400 mb-1">
+                      University Name ✏️ Editable
+                    </label>
+                    <select
+                      value={editAffiliatedUniversity}
+                      onChange={(e) => setEditAffiliatedUniversity(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                    >
+                      <option value="">-- None / Direct Institute Course --</option>
+                      {universities.map((u) => (
+                        <option key={u.id} value={u.name}>
+                          {u.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-amber-400 mb-1">
+                      University Total Fees (₹) ✏️ Editable
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={editUniversityTotalFees}
+                      onChange={(e) => setEditUniversityTotalFees(e.target.value === "" ? "" : Number(e.target.value))}
+                      className="w-full bg-slate-950 border border-amber-500/50 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-amber-300 font-mono focus:outline-none font-bold"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-0.5">Part of total course fees allocated to university.</p>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-4 border-t border-slate-800">
                 <button
                   type="button"
                   onClick={() => setIsEditProfileModalOpen(false)}
-                  className="px-3.5 py-2 text-xs text-slate-400 hover:text-white"
+                  className="px-4 py-2 text-xs text-slate-400 hover:text-white"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-semibold text-xs transition"
+                  className="px-6 py-2 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-semibold text-xs transition shadow-lg shadow-teal-500/20"
                 >
                   Save Changes
                 </button>

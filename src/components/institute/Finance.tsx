@@ -2,7 +2,7 @@ import React, { useState, useMemo } from "react";
 import { useInstitute } from "../../contexts/InstituteContext";
 import { useToast } from "../shared/Toast";
 import { StatCard } from "../shared/StatCard";
-import { ExpenseCategory, PaymentMode } from "../../types";
+import { ExpenseCategory, PaymentMode, Payment } from "../../types";
 import {
   formatCurrency,
   formatDate,
@@ -24,6 +24,13 @@ import {
   PieChart,
   FileText,
   Filter,
+  ChevronDown,
+  ChevronUp,
+  GraduationCap,
+  Users,
+  Clock,
+  Search,
+  X,
 } from "lucide-react";
 
 const EXPENSE_CATEGORIES: ExpenseCategory[] = [
@@ -56,10 +63,32 @@ export const Finance: React.FC = () => {
   const [expNote, setExpNote] = useState<string>("");
   const [submittingExpense, setSubmittingExpense] = useState(false);
 
-  // Tab inside Finance: "overview" | "revenue" | "outstanding" | "expenses" | "pnl"
+  // Tab inside Finance: "revenue" | "outstanding" | "expenses" | "pnl"
   const [activeFinanceTab, setActiveFinanceTab] = useState<
     "revenue" | "outstanding" | "expenses" | "pnl"
   >("revenue");
+
+  // Expanded students in Fee Collections table
+  const [expandedStudents, setExpandedStudents] = useState<Record<string, boolean>>({});
+
+  const toggleExpandStudent = (studentId: string) => {
+    setExpandedStudents((prev) => ({ ...prev, [studentId]: !prev[studentId] }));
+  };
+
+  // Fee Collections Table Filters
+  const [searchTerm, setSearchTerm] = useState("");
+  const [courseFilter, setCourseFilter] = useState("");
+  const [sessionFilter, setSessionFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [outstandingFilter, setOutstandingFilter] = useState("");
+
+  const uniqueCourses = useMemo(() => {
+    return [...new Set(students.map((s) => s.course_type).filter(Boolean))].sort();
+  }, [students]);
+
+  const uniqueSessions = useMemo(() => {
+    return [...new Set(students.map((s) => s.session).filter(Boolean))].sort();
+  }, [students]);
 
   // Compute date range limits
   const { rangeStart, rangeEnd } = useMemo(() => {
@@ -90,6 +119,36 @@ export const Finance: React.FC = () => {
     };
   }, [dateRangePreset, customStart, customEnd]);
 
+  // Filtered payments & expenses for current period
+  const filteredPayments = useMemo(() => {
+    return payments
+      .filter((p) => p.date >= rangeStart && p.date <= rangeEnd)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [payments, rangeStart, rangeEnd]);
+
+  const filteredExpenses = useMemo(() => {
+    return expenses
+      .filter((e) => e.date >= rangeStart && e.date <= rangeEnd)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [expenses, rangeStart, rangeEnd]);
+
+  const periodIncome = filteredPayments.reduce((s, p) => s + Number(p.amount), 0);
+  const periodExpenses = filteredExpenses.reduce((s, e) => s + Number(e.amount), 0);
+  const netProfitLoss = periodIncome - periodExpenses;
+
+  // Fee-type specific collected in period
+  const admissionCollected = filteredPayments
+    .filter((p) => p.payment_for === "Admission Fees" && !p.university_name)
+    .reduce((s, p) => s + Number(p.amount), 0);
+
+  const examCollected = filteredPayments
+    .filter((p) => p.payment_for === "Exam Fees" && !p.university_name)
+    .reduce((s, p) => s + Number(p.amount), 0);
+
+  const lateCollected = filteredPayments
+    .filter((p) => p.payment_for === "Late Fees" && !p.university_name)
+    .reduce((s, p) => s + Number(p.amount), 0);
+
   // Overall collection summaries
   const todayStr = getTodayDateString();
   const todayCollection = payments
@@ -111,23 +170,6 @@ export const Finance: React.FC = () => {
     .reduce((s, p) => s + Number(p.amount), 0);
 
   const totalAllTimeCollection = payments.reduce((s, p) => s + Number(p.amount), 0);
-
-  // Filtered payments & expenses for current period
-  const filteredPayments = useMemo(() => {
-    return payments
-      .filter((p) => p.date >= rangeStart && p.date <= rangeEnd)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [payments, rangeStart, rangeEnd]);
-
-  const filteredExpenses = useMemo(() => {
-    return expenses
-      .filter((e) => e.date >= rangeStart && e.date <= rangeEnd)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [expenses, rangeStart, rangeEnd]);
-
-  const periodIncome = filteredPayments.reduce((s, p) => s + Number(p.amount), 0);
-  const periodExpenses = filteredExpenses.reduce((s, e) => s + Number(e.amount), 0);
-  const netProfitLoss = periodIncome - periodExpenses;
 
   // Outstanding fees list
   const outstandingStudents = useMemo(() => {
@@ -205,23 +247,110 @@ export const Finance: React.FC = () => {
     window.open(`https://wa.me/91${clean}?text=${msg}`, "_blank");
   };
 
+  // Grouped students data for fee collections table (students who have payments in period or overall)
+  const studentsWithPaymentsData = useMemo(() => {
+    // Find all student IDs that have filtered payments in the period
+    const activeStudentIds = new Set(filteredPayments.map((p) => p.student_id));
+    return students
+      .filter((s) => activeStudentIds.has(s.id))
+      .map((student) => {
+        const studentPayments = filteredPayments.filter((p) => p.student_id === student.id);
+        const admissionFees = studentPayments
+          .filter((p) => p.payment_for === "Admission Fees" && !p.university_name)
+          .reduce((sum, p) => sum + Number(p.amount), 0);
+
+        const examFees = studentPayments
+          .filter((p) => p.payment_for === "Exam Fees" && !p.university_name)
+          .reduce((sum, p) => sum + Number(p.amount), 0);
+
+        const lateFees = studentPayments
+          .filter((p) => p.payment_for === "Late Fees" && !p.university_name)
+          .reduce((sum, p) => sum + Number(p.amount), 0);
+
+        const regularFees = studentPayments
+          .filter(
+            (p) =>
+              (!p.payment_for || (p.payment_for as string) === "" || p.payment_for === "Regular Payment") &&
+              !p.university_name
+          )
+          .reduce((sum, p) => sum + Number(p.amount), 0);
+
+        const totalPaid = admissionFees + examFees + lateFees + regularFees;
+
+        const universityPaid = studentPayments
+          .filter((p) => p.university_name && p.university_name !== "")
+          .reduce((sum, p) => sum + Number(p.amount), 0);
+
+        const outstanding = Math.max(0, student.total_fees - (totalPaid + universityPaid));
+
+        return {
+          student,
+          studentPayments,
+          admissionFees,
+          examFees,
+          lateFees,
+          regularFees,
+          totalPaid,
+          universityPaid,
+          outstanding,
+        };
+      });
+  }, [students, filteredPayments]);
+
+  const filteredStudents = useMemo(() => {
+    return studentsWithPaymentsData.filter((s) => {
+      const matchSearch =
+        !searchTerm ||
+        s.student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        s.student.registration_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        s.student.course_type.toLowerCase().includes(searchTerm.toLowerCase());
+
+      const matchCourse = !courseFilter || s.student.course_type === courseFilter;
+      const matchSession = !sessionFilter || s.student.session === sessionFilter;
+      const matchStatus = !statusFilter || s.student.status === statusFilter;
+
+      const matchOutstanding =
+        !outstandingFilter ||
+        (outstandingFilter === "pending" && s.outstanding > 0) ||
+        (outstandingFilter === "cleared" && s.outstanding <= 0);
+
+      return matchSearch && matchCourse && matchSession && matchStatus && matchOutstanding;
+    });
+  }, [studentsWithPaymentsData, searchTerm, courseFilter, sessionFilter, statusFilter, outstandingFilter]);
+
+  // Totals for summary row
+  const tableTotals = useMemo(() => {
+    return filteredStudents.reduce(
+      (acc, curr) => {
+        acc.admission += curr.admissionFees;
+        acc.regular += curr.regularFees;
+        acc.exam += curr.examFees;
+        acc.late += curr.lateFees;
+        acc.totalFees += Number(curr.student.total_fees || 0);
+        acc.totalPaid += curr.totalPaid;
+        acc.outstanding += curr.outstanding;
+        return acc;
+      },
+      { admission: 0, regular: 0, exam: 0, late: 0, totalFees: 0, totalPaid: 0, outstanding: 0 }
+    );
+  }, [filteredStudents]);
+
   // Export handlers
   const exportPaymentsCsv = () => {
-    const data = filteredPayments.map((p) => {
-      const std = students.find((s) => s.id === p.student_id);
-      return {
-        "Payment ID": p.id,
-        "Student Name": std?.name || "Unknown",
-        "Reg Number": std?.registration_number || "-",
-        Course: std?.course_type || "-",
-        Amount: p.amount,
-        Mode: p.mode,
-        Type: p.type,
-        Date: p.date,
-        Note: p.note || "",
-      };
-    });
-    downloadCsv(data, "Fee_Collections");
+    const data = filteredStudents.map((item) => ({
+      Student: item.student.name,
+      Course: item.student.course_type,
+      Discount: item.student.discount_amount ? `-${item.student.discount_amount} (${item.student.discount_percent || 0}%)` : "0",
+      "Admission Date": item.student.admission_date,
+      "Admission Fees": item.admissionFees,
+      "Regular Fees": item.regularFees,
+      "Exam Fees": item.examFees,
+      "Late Fees": item.lateFees,
+      "Total Fees": item.student.total_fees,
+      "Total Paid": item.totalPaid,
+      Outstanding: item.outstanding,
+    }));
+    downloadCsv(data, "Fee_Collections_Grouped");
   };
 
   const exportExpensesCsv = () => {
@@ -268,6 +397,7 @@ export const Finance: React.FC = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -289,7 +419,7 @@ export const Finance: React.FC = () => {
               onClick={exportPaymentsCsv}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-teal-300 font-semibold text-xs border border-slate-700 transition"
             >
-              <Download className="w-3.5 h-3.5" /> Export Payments CSV
+              <Download className="w-3.5 h-3.5" /> Export Grouped CSV
             </button>
           )}
           {activeFinanceTab === "outstanding" && (
@@ -319,8 +449,8 @@ export const Finance: React.FC = () => {
         </div>
       </div>
 
-      {/* Top 4 Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Top Stat Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3">
         <StatCard
           title="Today's Collection"
           value={formatCurrency(todayCollection)}
@@ -329,21 +459,42 @@ export const Finance: React.FC = () => {
           badgeColor="teal"
         />
         <StatCard
-          title="This Week's Collection"
+          title="This Week"
           value={formatCurrency(weekCollection)}
           icon={TrendingUp}
-          badge="Last 7 Days"
+          badge="7 Days"
           badgeColor="emerald"
         />
         <StatCard
-          title="This Month's Collection"
+          title="This Month"
           value={formatCurrency(monthCollection)}
           icon={Calendar}
           badge="MTD"
           badgeColor="blue"
         />
         <StatCard
-          title="All-Time Total Collections"
+          title="Admission Collected"
+          value={formatCurrency(admissionCollected)}
+          icon={Users}
+          badge="Period"
+          badgeColor="teal"
+        />
+        <StatCard
+          title="Exam Fees"
+          value={formatCurrency(examCollected)}
+          icon={FileText}
+          badge="Period"
+          badgeColor="amber"
+        />
+        <StatCard
+          title="Late Fees"
+          value={formatCurrency(lateCollected)}
+          icon={Clock}
+          badge="Period"
+          badgeColor="rose"
+        />
+        <StatCard
+          title="All-Time Total"
           value={formatCurrency(totalAllTimeCollection)}
           icon={DollarSign}
           badge="Gross"
@@ -409,64 +560,258 @@ export const Finance: React.FC = () => {
         </div>
       </div>
 
-      {/* VIEW: Fee Collections Table */}
+      {/* VIEW: Fee Collections Grouped Table */}
       {activeFinanceTab === "revenue" && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-          <div className="p-4 bg-slate-950/60 border-b border-slate-800 flex justify-between items-center">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-white">
-              Fee Collections ({filteredPayments.length} transactions in period)
-            </h3>
-            <span className="text-xs font-mono font-bold text-emerald-400">
-              Total: {formatCurrency(periodIncome)}
-            </span>
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 mb-4 flex-wrap">
+            {/* 1. Global Search */}
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                placeholder="Search by student name, reg number, course..."
+                className="w-full bg-slate-900 border border-slate-800 focus:border-teal-500 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none"
+              />
+            </div>
+
+            {/* 2. Course Filter */}
+            <select
+              value={courseFilter}
+              onChange={e => setCourseFilter(e.target.value)}
+              className="bg-slate-900 border border-slate-800 text-sm text-slate-300 rounded-xl px-4 py-2.5 focus:outline-none focus:border-teal-500 min-w-[150px]"
+            >
+              <option value="">All Courses</option>
+              {uniqueCourses.map(c => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+
+            {/* 3. Session Filter */}
+            <select
+              value={sessionFilter}
+              onChange={e => setSessionFilter(e.target.value)}
+              className="bg-slate-900 border border-slate-800 text-sm text-slate-300 rounded-xl px-4 py-2.5 focus:outline-none focus:border-teal-500 min-w-[160px]"
+            >
+              <option value="">All Sessions</option>
+              {uniqueSessions.map(s => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+
+            {/* 4. Status Filter */}
+            <select
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+              className="bg-slate-900 border border-slate-800 text-sm text-slate-300 rounded-xl px-4 py-2.5 focus:outline-none focus:border-teal-500"
+            >
+              <option value="">All Statuses</option>
+              <option value="Active">Active</option>
+              <option value="Completed">Completed</option>
+              <option value="Dropped">Dropped</option>
+              <option value="On Hold">On Hold</option>
+            </select>
+
+            {/* 5. Outstanding Filter */}
+            <select
+              value={outstandingFilter}
+              onChange={e => setOutstandingFilter(e.target.value)}
+              className="bg-slate-900 border border-slate-800 text-sm text-slate-300 rounded-xl px-4 py-2.5 focus:outline-none focus:border-teal-500"
+            >
+              <option value="">All Payments</option>
+              <option value="pending">Has Outstanding</option>
+              <option value="cleared">Fully Cleared</option>
+            </select>
+
+            {/* Clear Filters button */}
+            {(searchTerm || courseFilter || sessionFilter || statusFilter || outstandingFilter) && (
+              <button
+                onClick={() => {
+                  setSearchTerm("");
+                  setCourseFilter("");
+                  setSessionFilter("");
+                  setStatusFilter("");
+                  setOutstandingFilter("");
+                }}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-sm transition flex items-center gap-2"
+              >
+                <X className="w-3.5 h-3.5" />
+                Clear Filters
+              </button>
+            )}
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-950/80 text-slate-400 uppercase font-semibold text-[11px] tracking-wider border-b border-slate-800">
-                <tr>
-                  <th className="py-3 px-4">Date</th>
-                  <th className="py-3 px-4">Student Name</th>
-                  <th className="py-3 px-4">Course</th>
-                  <th className="py-3 px-4">Amount</th>
-                  <th className="py-3 px-4">Mode</th>
-                  <th className="py-3 px-4">Type</th>
-                  <th className="py-3 px-4">Note</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {filteredPayments.length === 0 ? (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+            <div className="p-4 bg-slate-950/60 border-b border-slate-800 flex justify-between items-center">
+              <h3 className={`text-xs font-semibold uppercase tracking-wider ${Boolean(searchTerm || courseFilter || sessionFilter || statusFilter || outstandingFilter) ? "text-amber-400" : "text-white"}`}>
+                Fee Collections ({filteredStudents.length} of {studentsWithPaymentsData.length} students {Boolean(searchTerm || courseFilter || sessionFilter || statusFilter || outstandingFilter) ? "— filtered" : ""})
+              </h3>
+              <span className="text-xs font-mono font-bold text-emerald-400">
+                Total Period Income: {formatCurrency(periodIncome)}
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-slate-950/80 text-slate-400 uppercase font-semibold text-[11px] tracking-wider border-b border-slate-800 sticky top-0 z-10">
                   <tr>
-                    <td colSpan={7} className="py-8 text-center text-slate-500">
-                      No collections recorded in this date range.
-                    </td>
+                    <th className="py-3.5 px-4">Student Name</th>
+                    <th className="py-3.5 px-4">Course</th>
+                    <th className="py-3.5 px-4">Discount</th>
+                    <th className="py-3.5 px-4">Admission Date</th>
+                    <th className="py-3.5 px-4">Admission</th>
+                    <th className="py-3.5 px-4">Regular</th>
+                    <th className="py-3.5 px-4">Exam</th>
+                    <th className="py-3.5 px-4">Late</th>
+                    <th className="py-3.5 px-4">Total Fees</th>
+                    <th className="py-3.5 px-4">Total Paid</th>
+                    <th className="py-3.5 px-4">Outstanding</th>
                   </tr>
-                ) : (
-                  filteredPayments.map((p) => {
-                    const s = students.find((std) => std.id === p.student_id);
-                    return (
-                      <tr key={p.id} className="hover:bg-slate-800/40 transition">
-                        <td className="py-3 px-4 font-mono">{formatDate(p.date)}</td>
-                        <td className="py-3 px-4 font-semibold text-white">
-                          {s ? s.name : "Student"}
-                        </td>
-                        <td className="py-3 px-4 text-slate-300">{s?.course_type || "-"}</td>
-                        <td className="py-3 px-4 font-mono font-bold text-emerald-400">
-                          {formatCurrency(p.amount)}
-                        </td>
-                        <td className="py-3 px-4">{p.mode}</td>
-                        <td className="py-3 px-4">
-                          <span className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-[11px]">
-                            {p.type}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-slate-400 truncate max-w-xs">{p.note || "-"}</td>
-                      </tr>
-                    );
-                  })
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {filteredStudents.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} className="py-12 text-center text-slate-500">
+                        No fee collections recorded matching the filter criteria.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredStudents.map((item) => {
+                      const isExpanded = Boolean(expandedStudents[item.student.id]);
+                      return (
+                        <React.Fragment key={item.student.id}>
+                          <tr
+                            onClick={() => toggleExpandStudent(item.student.id)}
+                            className="hover:bg-slate-800/40 transition cursor-pointer"
+                          >
+                            <td className="py-3.5 px-4 font-semibold text-white flex items-center gap-2">
+                              <span>{isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-teal-400" /> : <ChevronDown className="w-3.5 h-3.5 text-slate-500" />}</span>
+                              <div>
+                                <div>{item.student.name}</div>
+                                <div className="text-[10px] font-mono text-slate-500">{item.student.registration_number}</div>
+                              </div>
+                            </td>
+                            <td className="py-3.5 px-4 text-slate-400">{item.student.course_type}</td>
+                            <td className="py-3.5 px-4 font-mono">
+                              {Number(item.student.discount_amount || 0) > 0 ? (
+                                <span className="text-violet-300 font-semibold">
+                                  -{formatCurrency(item.student.discount_amount)} {item.student.discount_percent ? `(${item.student.discount_percent}%)` : ""}
+                                </span>
+                              ) : (
+                                <span className="text-slate-600">-</span>
+                              )}
+                            </td>
+                            <td className="py-3.5 px-4 text-slate-400 text-sm font-mono">{formatDate(item.student.admission_date)}</td>
+                            <td className="py-3.5 px-4 font-mono">
+                              {item.admissionFees > 0 ? (
+                                <span className="text-teal-400">{formatCurrency(item.admissionFees)}</span>
+                              ) : (
+                                <span className="text-slate-600">-</span>
+                              )}
+                            </td>
+                            <td className="py-3.5 px-4 font-mono">
+                              {item.regularFees > 0 ? (
+                                <span className="text-teal-400">{formatCurrency(item.regularFees)}</span>
+                              ) : (
+                                <span className="text-slate-600">-</span>
+                              )}
+                            </td>
+                            <td className="py-3.5 px-4 font-mono">
+                              {item.examFees > 0 ? (
+                                <span className="text-amber-400">{formatCurrency(item.examFees)}</span>
+                              ) : (
+                                <span className="text-slate-600">-</span>
+                              )}
+                            </td>
+                            <td className="py-3.5 px-4 font-mono">
+                              {item.lateFees > 0 ? (
+                                <span className="text-rose-400">{formatCurrency(item.lateFees)}</span>
+                              ) : (
+                                <span className="text-slate-600">-</span>
+                              )}
+                            </td>
+                            <td className="py-3.5 px-4 font-mono font-semibold text-white">
+                              {formatCurrency(item.student.total_fees)}
+                            </td>
+                            <td className="py-3.5 px-4 font-mono font-bold text-emerald-400 text-sm">
+                              {formatCurrency(item.totalPaid)}
+                            </td>
+                            <td className="py-3.5 px-4 font-mono">
+                              {item.outstanding > 0 ? (
+                                <span className="text-rose-400 font-bold">{formatCurrency(item.outstanding)}</span>
+                              ) : (
+                                <span className="text-emerald-400 font-semibold">Cleared ✓</span>
+                              )}
+                            </td>
+                          </tr>
+
+                          {/* Expanded transaction rows */}
+                          {isExpanded && (
+                            <tr>
+                              <td colSpan={11} className="bg-slate-950/80 p-4 border-y border-slate-800">
+                                <div className="text-[11px] font-semibold text-slate-400 mb-2 uppercase tracking-wider">
+                                  Transaction History for {item.student.name} ({item.studentPayments.length} transactions):
+                                </div>
+                                <div className="space-y-1.5 pl-4 border-l-2 border-teal-500/40">
+                                  {item.studentPayments.map((p) => {
+                                    const isUniv = Boolean(p.university_name && p.university_name.trim());
+                                    return (
+                                      <div
+                                        key={p.id}
+                                        className={`flex items-center justify-between text-xs font-mono p-2 rounded-lg ${
+                                          isUniv
+                                            ? "bg-amber-500/10 border border-amber-500/20 text-amber-200"
+                                            : "bg-slate-900 border border-slate-800 text-slate-300"
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-3">
+                                          <span className="text-slate-500">{formatDate(p.date)}</span>
+                                          <span className={`font-bold ${isUniv ? "text-amber-400" : "text-emerald-400"}`}>
+                                            {formatCurrency(p.amount)}
+                                          </span>
+                                          <span className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-[10px] text-slate-300">
+                                            {p.mode}
+                                          </span>
+                                          <span className="text-slate-400">
+                                            {p.payment_for || p.type} {isUniv ? `(${p.university_name})` : ""}
+                                          </span>
+                                        </div>
+                                        <div className="text-slate-500 text-[11px] truncate max-w-xs">
+                                          {p.note || "-"}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })
+                  )}
+                </tbody>
+                {/* Summary Row at Bottom */}
+                {filteredStudents.length > 0 && (
+                  <tfoot className="bg-slate-950 text-white font-bold text-xs border-t-2 border-slate-800">
+                    <tr>
+                      <td className="py-3.5 px-4">TOTAL ({filteredStudents.length} students)</td>
+                      <td className="py-3.5 px-4">-</td>
+                      <td className="py-3.5 px-4">-</td>
+                      <td className="py-3.5 px-4">-</td>
+                      <td className="py-3.5 px-4 font-mono text-teal-300">{formatCurrency(tableTotals.admission)}</td>
+                      <td className="py-3.5 px-4 font-mono text-teal-300">{formatCurrency(tableTotals.regular)}</td>
+                      <td className="py-3.5 px-4 font-mono text-amber-300">{formatCurrency(tableTotals.exam)}</td>
+                      <td className="py-3.5 px-4 font-mono text-rose-300">{formatCurrency(tableTotals.late)}</td>
+                      <td className="py-3.5 px-4 font-mono text-white font-semibold">{formatCurrency(tableTotals.totalFees)}</td>
+                      <td className="py-3.5 px-4 font-mono text-emerald-400 text-sm">{formatCurrency(tableTotals.totalPaid)}</td>
+                      <td className="py-3.5 px-4 font-mono text-amber-400">{formatCurrency(tableTotals.outstanding)}</td>
+                    </tr>
+                  </tfoot>
                 )}
-              </tbody>
-            </table>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -547,7 +892,6 @@ export const Finance: React.FC = () => {
       {/* VIEW: Expense Management */}
       {activeFinanceTab === "expenses" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Add Expense Form (left) */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-teal-400 mb-4 flex items-center gap-2">
               <Plus className="w-4 h-4" /> Add Operational Expense
@@ -614,9 +958,7 @@ export const Finance: React.FC = () => {
             </form>
           </div>
 
-          {/* Expenses Table & Breakdown (right) */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Category breakdown bar cards */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
               <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-300 mb-3">
                 Period Expense Breakdown by Category
@@ -631,7 +973,6 @@ export const Finance: React.FC = () => {
               </div>
             </div>
 
-            {/* Expenses table */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs text-slate-300">
@@ -682,7 +1023,6 @@ export const Finance: React.FC = () => {
       {/* VIEW: P&L Statement */}
       {activeFinanceTab === "pnl" && (
         <div className="space-y-6">
-          {/* Summary Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800">
               <span className="text-xs text-slate-400 uppercase tracking-wider block mb-1">
@@ -718,7 +1058,6 @@ export const Finance: React.FC = () => {
             </div>
           </div>
 
-          {/* Month-Wise P&L Table */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
             <div className="p-4 bg-slate-950/60 border-b border-slate-800">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-white">
