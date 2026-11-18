@@ -12,6 +12,7 @@ import {
   Clock,
   Sparkles,
   TrendingUp,
+  GraduationCap,
 } from "lucide-react";
 import { formatCurrency, formatDate, getDaysDifference } from "../../utils/formatters";
 import { Student } from "../../types";
@@ -80,6 +81,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .slice(0, 5);
 
+    const universityPaid = payments
+      .filter((p) => p.university_name && p.university_name !== "")
+      .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+    const uniAdmission = payments
+      .filter((p) => p.university_name && p.university_name !== "" && p.payment_for === "Admission Fees")
+      .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+    const uniExam = payments
+      .filter((p) => p.university_name && p.university_name !== "" && p.payment_for === "Exam Fees")
+      .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+    const uniLate = payments
+      .filter((p) => p.university_name && p.university_name !== "" && p.payment_for === "Late Fees")
+      .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+    const uniBreakdownItems = [
+      uniAdmission > 0 ? `Adm: ₹${uniAdmission.toLocaleString()}` : null,
+      uniExam > 0 ? `Exam: ₹${uniExam.toLocaleString()}` : null,
+      uniLate > 0 ? `Late: ₹${uniLate.toLocaleString()}` : null,
+    ].filter(Boolean);
+
+    const uniBreakdownText = uniBreakdownItems.length > 0 ? uniBreakdownItems.join(" | ") : "No payments yet";
+
     return {
       activeCount: activeStudents.length,
       dropoutsCount: dropouts.length,
@@ -88,6 +113,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       pendingFees,
       recoveryPercent,
       newAdmissionsMonth,
+      universityPaid,
+      uniBreakdownText,
       monthlyAdmissions,
       courseCounts,
       dueStudents: dueStudents.slice(0, 5),
@@ -205,18 +232,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
           </div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 min-h-[110px] shadow-xl flex flex-col justify-between">
+        <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-6 min-h-[110px] shadow-xl flex flex-col justify-between">
           <div className="flex justify-between items-start">
-            <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Certificates</span>
-            <div className="w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/30 text-teal-400 flex items-center justify-center shrink-0">
-              <Award className="w-5 h-5" />
+            <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">University Paid</span>
+            <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center shrink-0">
+              <GraduationCap className="w-5 h-5 text-amber-400" />
             </div>
           </div>
           <div>
-            <h3 className="text-2xl font-bold text-white font-mono">{metrics.certsCount}</h3>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-400 border border-teal-500/20 inline-block mt-1">
-              Issued
+            <h3 className="text-2xl font-bold text-amber-400 font-mono">{formatCurrency(metrics.universityPaid)}</h3>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 inline-block mt-1">
+              To University
             </span>
+            <p className="text-[11px] text-slate-400 mt-1 truncate font-mono">
+              {metrics.uniBreakdownText}
+            </p>
           </div>
         </div>
 
